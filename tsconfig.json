@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "ES2017",
+        "module": "CommonJS",
+        "strict": true,
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "noImplicitThis": true,
+        "noImplicitAny": false,
+        "alwaysStrict": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "forceConsistentCasingInFileNames": true,
+        "esModuleInterop": true,
+        "lib": ["es2015", "ESNext.AsyncIterable"],
+        "sourceMap": true,
+        "typeRoots": ["./node_modules/@types", "./types"],
+        "types": ["node", "truffle-contracts"]
+    },
+    "include": ["**/*.ts"],
+    "exclude": ["node_modules"]
+}

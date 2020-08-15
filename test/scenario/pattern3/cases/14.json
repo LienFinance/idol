@@ -1,0 +1,42 @@
+{
+  "errorMessage": "there is no auction amount, but the bids of auction is given",
+  "users": [1, 2],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {
+          "mintingBondAmount": 2.0,
+          "lockingSBTAmount": 0
+        },
+        "2": {
+          "mintingBondAmount": 2.0,
+          "lockingSBTAmount": 0
+        }
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {
+          "mintingBondAmount": 2.0,
+          "lockingSBTAmount": 0
+        },
+        "2": {
+          "mintingBondAmount": 2.0,
+          "lockingSBTAmount": 0
+        }
+      },
+      "auctions": [
+        {
+          "bids": [],
+          "actions": {
+            "1": {"result": null},
+            "2": {"result": null}
+          }
+        }
+      ]
+    }
+  ]
+}

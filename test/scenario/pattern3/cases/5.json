@@ -1,0 +1,54 @@
+{
+  "errorMessage": "",
+  "users": [1, 2],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 2, "lockingSBTAmount": 0.02},
+        "2": {"mintingBondAmount": 2, "lockingSBTAmount": 0.02}
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 2, "lockingSBTAmount": 0.02},
+        "2": {"mintingBondAmount": 2, "lockingSBTAmount": 0.02}
+      },
+      "auctions": [
+        {
+          "bids": [
+            {"accountIndex": 1, "price": 93, "amount": 0.02, "random": 1},
+            {"accountIndex": 2, "price": 94, "amount": 0.01, "random": 2},
+            {"accountIndex": 2, "price": 92, "amount": 0.005, "random": 3},
+            {"accountIndex": 1, "price": 91, "amount": 0.015, "random": 4},
+            {"accountIndex": 2, "price": 93, "amount": 0.02, "random": 5}
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": 91,
+                "myWinBids": [{"price": 93, "boardIndex": 0}],
+                "myLoseBids": [{"price": 91, "boardIndex": 0}]
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": 92,
+                "myWinBids": [
+                  {"price": 94, "boardIndex": 0},
+                  {"price": 93, "boardIndex": 1}
+                ],
+                "myLoseBids": [
+                  {"price": 93, "boardIndex": 1},
+                  {"price": 92, "boardIndex": 0}
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

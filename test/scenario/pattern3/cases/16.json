@@ -1,0 +1,91 @@
+{
+  "errorMessage": "",
+  "users": [1, 2],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {
+          "mintingBondAmount": 5,
+          "lockingSBTAmount": 5
+        },
+        "2": {
+          "mintingBondAmount": 5,
+          "lockingSBTAmount": 5
+        }
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {
+          "mintingBondAmount": 3,
+          "lockingSBTAmount": 3
+        },
+        "2": {
+          "mintingBondAmount": 2,
+          "lockingSBTAmount": 2
+        }
+      },
+      "auctions": [
+        {
+          "bids": [
+            {
+              "accountIndex": 1,
+              "price": 95,
+              "amount": 3,
+              "random": 1,
+              "unrevealed": true
+            },
+            {
+              "accountIndex": 2,
+              "price": 94,
+              "amount": 3,
+              "random": 2,
+              "unrevealed": true
+            },
+            {
+              "accountIndex": 1,
+              "price": 93,
+              "amount": 2,
+              "random": 3
+            },
+            {
+              "accountIndex": 2,
+              "price": 92,
+              "amount": 2,
+              "random": 4
+            }
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 93,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 92,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

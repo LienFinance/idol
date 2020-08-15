@@ -1,0 +1,79 @@
+{
+  "errorMessage": "",
+  "users": [1, 2, 3, 4, 5],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "2": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "3": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "4": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "5": {"mintingBondAmount": 10, "lockingSBTAmount": 10}
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 0.78, "lockingSBTAmount": 0.65},
+        "2": {"mintingBondAmount": 0.75, "lockingSBTAmount": 0.6},
+        "3": {"mintingBondAmount": 0.44, "lockingSBTAmount": 0.28},
+        "4": {"mintingBondAmount": 0.63, "lockingSBTAmount": 0.48},
+        "5": {"mintingBondAmount": 0.79, "lockingSBTAmount": 0.57}
+      },
+      "auctions": [
+        {
+          "bids": [
+            {"accountIndex": 1, "price": 99, "amount": 0.8, "random": 0},
+            {"accountIndex": 2, "price": 99, "amount": 0.6, "random": 1},
+            {"accountIndex": 4, "price": 99, "amount": 0.9, "random": 2},
+            {"accountIndex": 4, "price": 96, "amount": 0.02, "random": 3},
+            {"accountIndex": 3, "price": 97, "amount": 0.68, "random": 6},
+            {"accountIndex": 3, "price": 97, "amount": 0.03, "random": 7}
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": "99", "boardIndex": 0}],
+                "myLoseBids": []
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": "99", "boardIndex": 1}],
+                "myLoseBids": []
+              }
+            },
+            "3": {
+              "result": {
+                "myLowestPrice": "97",
+                "myWinBids": [{"price": "97", "boardIndex": 0}],
+                "myLoseBids": [
+                  {"price": "97", "boardIndex": 0},
+                  {"price": "97", "boardIndex": 1}
+                ]
+              }
+            },
+            "4": {
+              "result": {
+                "myLowestPrice": "96",
+                "myWinBids": [{"price": "99", "boardIndex": 2}],
+                "myLoseBids": [{"price": "96", "boardIndex": 0}]
+              }
+            },
+            "5": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

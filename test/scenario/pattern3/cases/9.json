@@ -1,0 +1,87 @@
+{
+  "errorMessage": "",
+  "users": [1, 2, 3, 4, 5],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "2": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "3": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "4": {"mintingBondAmount": 10, "lockingSBTAmount": 10},
+        "5": {"mintingBondAmount": 10, "lockingSBTAmount": 10}
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 100,
+      "assets": {
+        "1": {"mintingBondAmount": 0.9, "lockingSBTAmount": 0.6},
+        "2": {"mintingBondAmount": 0.6, "lockingSBTAmount": 0.4},
+        "3": {"mintingBondAmount": 0.6, "lockingSBTAmount": 0.5},
+        "4": {"mintingBondAmount": 0.7, "lockingSBTAmount": 0.6},
+        "5": {"mintingBondAmount": 1, "lockingSBTAmount": 0.6}
+      },
+      "auctions": [
+        {
+          "bids": [
+            {"accountIndex": 4, "price": 97, "amount": 0.5, "random": 0},
+            {"accountIndex": 3, "price": 97, "amount": 0.5, "random": 1},
+            {"accountIndex": 1, "price": 99, "amount": 1, "random": 2},
+            {"accountIndex": 3, "price": 99, "amount": 0.02, "random": 3},
+            {"accountIndex": 4, "price": 96, "amount": 0.03, "random": 4},
+            {"accountIndex": 2, "price": 96, "amount": 0.7, "random": 6},
+            {"accountIndex": 1, "price": 95, "amount": 0.04, "random": 8},
+            {"accountIndex": 2, "price": 95, "amount": 0.04, "random": 9}
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "95",
+                "myWinBids": [{"price": "99", "boardIndex": 0}],
+                "myLoseBids": [{"price": "95", "boardIndex": 0}]
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "95",
+                "myWinBids": [{"price": "96", "boardIndex": 1}],
+                "myLoseBids": [
+                  {"price": "96", "boardIndex": 1},
+                  {"price": "95", "boardIndex": 1}
+                ]
+              }
+            },
+            "3": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [
+                  {"price": "99", "boardIndex": 1},
+                  {"price": "97", "boardIndex": 1}
+                ],
+                "myLoseBids": []
+              }
+            },
+            "4": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [
+                  {"price": "97", "boardIndex": 0},
+                  {"price": "96", "boardIndex": 0}
+                ],
+                "myLoseBids": []
+              }
+            },
+            "5": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
