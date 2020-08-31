@@ -31,6 +31,7 @@ contract StableCoin is
     uint256 internal constant MINT_IDOL_BORDER = 10 - LOCK_POOL_BORDER;
     uint256 internal immutable AUCTION_SPAN;
     uint256 internal immutable EMERGENCY_AUCTION_SPAN;
+    uint256 internal immutable MINT_IDOL_AMOUNT_BORDER;
 
     /**
      * @dev The contents of this internal storage variable can be seen by solidValueTotal function.
@@ -87,11 +88,13 @@ contract StableCoin is
         address oracleAddress,
         address bondMakerAddress,
         uint256 auctionSpan,
-        uint256 emergencyAuctionSpan
+        uint256 emergencyAuctionSpan,
+        uint256 mintIDOLAmountBorder
     ) public UseOracle(oracleAddress) UseBondMaker(bondMakerAddress) {
         _setupDecimals(8);
         AUCTION_SPAN = auctionSpan;
         EMERGENCY_AUCTION_SPAN = emergencyAuctionSpan;
+        MINT_IDOL_AMOUNT_BORDER = mintIDOLAmountBorder;
     }
 
     function _reduceSBTValue(uint256 SBTValueE12) internal {
@@ -319,10 +322,16 @@ contract StableCoin is
         public
         virtual
         override
+        isNotEmptyAuctionInstance
         returns (bool)
     {
-        (, uint256 maturity, uint64 solidStrikePriceE4, ) = _bondMakerContract
-            .getBond(bondID);
+        (
+            address bondTokenAddress,
+            uint256 maturity,
+            uint64 solidStrikePriceE4,
+
+        ) = _bondMakerContract.getBond(bondID);
+        require(bondTokenAddress != address(0), "the bond is not registered");
         require(
             solidStrikePriceE4 != 0,
             "the bond does not match to the form of SBT"
@@ -394,6 +403,11 @@ contract StableCoin is
         // Calculate the mint amount based on the dilution ratio.
         uint256 solidBondValueE12 = lockAmountE8.mul(solidStrikePriceE4);
         uint256 mintAmountE8 = calcSBT2IDOL(solidBondValueE12);
+        require(
+            accountingInfo.lockedPoolIDOLTotalE8 != 0 ||
+                mintAmountE8 >= MINT_IDOL_AMOUNT_BORDER,
+            "mint amount need to be greater than 500 idol for this bond"
+        );
 
         ERC20 bondTokenContract = ERC20(bondTokenAddress);
         bondTokenContract.transferFrom(msg.sender, address(this), lockAmountE8);
@@ -432,7 +446,11 @@ contract StableCoin is
      * @dev Only the auction contract address can burn some specified amount of the IDOL held by
      * an account.
      */
-    function burnFrom(address account, uint256 amount) public override {
+    function burnFrom(address account, uint256 amount)
+        public
+        override
+        isNotEmptyAuctionInstance
+    {
         require(
             msg.sender == address(_auctionContract),
             "msg.sender must be auction contract"
@@ -466,6 +484,7 @@ contract StableCoin is
             uint256 solidStrikePriceE4,
 
         ) = _bondMakerContract.getBond(bondID);
+        require(bondTokenAddress != address(0), "the bond is not registered");
         require(solidStrikePriceE4 != 0, "the bond is not the form of SBT");
 
 
@@ -518,10 +537,23 @@ contract StableCoin is
     /**
      * @notice Starts regular auction for SBT with short maturity.
      */
-    function startAuctionOnMaturity(bytes32 bondID) public override {
+    function startAuctionOnMaturity(bytes32 bondID)
+        public
+        override
+        isNotEmptyAuctionInstance
+    {
         bytes32 poolID = getCurrentPoolID(bondID);
-        (address bondTokenAddress, uint256 maturity, , ) = _bondMakerContract
-            .getBond(bondID);
+        (
+            address bondTokenAddress,
+            uint256 maturity,
+            uint64 solidBondStrikePriceUSD,
+
+        ) = _bondMakerContract.getBond(bondID);
+        require(bondTokenAddress != address(0), "the bond is not registered");
+        require(
+            solidBondStrikePriceUSD != 0,
+            "the bond is not the form of SBT"
+        );
         require(
             maturity <= _getBlockTimestampSec() + AUCTION_SPAN,
             "maturity is later than the regular auctionSpan"
@@ -568,7 +600,11 @@ contract StableCoin is
      * time until maturity, the volatility, and the distance between the current price and the
      * strike price.
      */
-    function startAuctionByMarket(bytes32 bondID) public override {
+    function startAuctionByMarket(bytes32 bondID)
+        public
+        override
+        isNotEmptyAuctionInstance
+    {
         bytes32 poolID = getCurrentPoolID(bondID);
         (
             address bondTokenAddress,
@@ -576,6 +612,7 @@ contract StableCoin is
             uint64 solidBondStrikePriceUSD,
 
         ) = _bondMakerContract.getBond(bondID);
+        require(bondTokenAddress != address(0), "the bond is not registered");
         require(
             solidBondStrikePriceUSD != 0,
             "the bond is not the form of SBT"
@@ -626,7 +663,7 @@ contract StableCoin is
         uint64 totalPaidIDOL,
         uint64 SBTAmount,
         bool isLast
-    ) public override {
+    ) public override isNotEmptyAuctionInstance {
         require(
             msg.sender == address(_auctionContract),
             "msg.sender must be auction contract"
@@ -659,7 +696,7 @@ contract StableCoin is
         return solidBondValueE12.mul(totalSupply()).div(_solidValueTotalE12);
     }
 
-    function _calcUnlockablePoolAmount(bytes32 poolID)
+    function _calcUnlockablePoolAmount(bytes32 poolID, address account)
         internal
         returns (uint64)
     {
@@ -668,9 +705,9 @@ contract StableCoin is
             return 0;
         }
 
-        uint256 pool = lockedPoolE8[msg.sender][poolID].IDOLAmount;
-        uint256 amountE8 = lockedPoolE8[msg.sender][poolID].baseSBTAmount;
-        delete lockedPoolE8[msg.sender][poolID];
+        uint256 pool = lockedPoolE8[account][poolID].IDOLAmount;
+        uint256 amountE8 = lockedPoolE8[account][poolID].baseSBTAmount;
+        delete lockedPoolE8[account][poolID];
 
         uint256 auctionIDOLPriceE8 = auctionInfo.settledAverageAuctionPrice;
         uint256 toBack = 0;
@@ -694,7 +731,7 @@ contract StableCoin is
      * @notice Receives all the redeemable IDOL in one action.
      * @dev Receive corresponding pooled IDOL based on the SettledAverageAuctionPrice.
      */
-    function returnLockedPool(bytes32[] memory poolIDs)
+    function returnLockedPoolTo(bytes32[] memory poolIDs, address account)
         public
         override
         returns (uint64)
@@ -702,13 +739,26 @@ contract StableCoin is
         uint256 totalBackIDOLAmount = 0;
         for (uint256 i = 0; i < poolIDs.length; i++) {
             // For each bondID, the return amount should not exceed the pooled amount.
-            uint64 backIDOLAmount = _calcUnlockablePoolAmount(poolIDs[i]);
+            uint64 backIDOLAmount = _calcUnlockablePoolAmount(
+                poolIDs[i],
+                account
+            );
             totalBackIDOLAmount = totalBackIDOLAmount.add(backIDOLAmount);
-            emit LogReturnLockedPool(poolIDs[i], msg.sender, backIDOLAmount);
+            if (backIDOLAmount != 0) {
+                emit LogReturnLockedPool(poolIDs[i], account, backIDOLAmount);
+            }
         }
 
-        this.transfer(msg.sender, totalBackIDOLAmount);
+        this.transfer(account, totalBackIDOLAmount);
 
         return totalBackIDOLAmount.toUint64();
+    }
+
+    function returnLockedPool(bytes32[] memory poolIDs)
+        public
+        override
+        returns (uint64)
+    {
+        return returnLockedPoolTo(poolIDs, msg.sender);
     }
 }

@@ -1,4 +1,4 @@
-import { fnMapSolid1, fnMapLiquid1 } from "../testCases";
+import {fnMapSolid1, fnMapLiquid1} from "../testCases";
 
 const days = 86400;
 

@@ -86,10 +86,10 @@ ex)
 
 | Bid Price     | Nominal Quotation |
 | ------------- | ----------------- |
-| Less than \$5 | \$0.001          |
-| $5-$49        | \$0.01           |
-| $50-$499      | \$0.1            |
-| $500-$4999    | \$1             |
+| Less than \$5 | \$0.001           |
+| $5-$49.99     | \$0.01            |
+| $50-$499.9    | \$0.1             |
+| $500-$4999    | \$1               |
 | \$5000-       | Follows similarly |
 
 -   In the Winning Period, the bid price which has been revealed in the Reveal Period are sorted. The sorted bid price list is pushed from the outside and the contract validates it. The validation process can be always executed in one transaction because of the nominal quotation. To avoid spams or attacks (e.g. sending many bids with the small amount), we set the lowest bid amount as 100iDOL.

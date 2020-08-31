@@ -1,17 +1,6 @@
 import testCases from "../testCases";
 import {callGetAuctionStatus} from "./callFunction";
 
-import {
-  minNormalAuctionPeriod,
-  minEmergencyAuctionPeriod,
-  normalAuctionRevealSpan,
-  emergencyAuctionRevealSpan,
-  auctionWithdrawSpan,
-  emergencyAuctionWithdrawSpan,
-  maxPriceIndex,
-  maxBoardIndex,
-  maxBoardIndexAtEndPrice,
-} from "../constants";
 import {init} from "../init";
 
 const BondMaker = artifacts.require("TestBondMaker");

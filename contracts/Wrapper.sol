@@ -25,6 +25,14 @@ contract Wrapper is
 {
     LBTExchangeFactoryInterface internal _exchangeLBTAndIDOLFactoryContract;
 
+    modifier isNotEmptyExchangeInstance() {
+        require(
+            address(_exchangeLBTAndIDOLFactoryContract) != address(0),
+            "the exchange contract is not set"
+        );
+        _;
+    }
+
     constructor(
         address oracleAddress,
         address bondMakerAddress,
@@ -131,7 +139,7 @@ contract Wrapper is
         uint256 LBTAmount,
         uint256 timeout,
         bool isLimit
-    ) internal {
+    ) internal isNotEmptyExchangeInstance {
         address _boxExchangeAddress = _exchangeLBTAndIDOLFactoryContract
             .addressToExchangeLookup(LBTAddress);
         // 1. approve
@@ -156,7 +164,7 @@ contract Wrapper is
         uint256 IDOLAmount,
         uint256 timeout,
         bool isLimit
-    ) internal {
+    ) internal isNotEmptyExchangeInstance {
         address _boxExchangeAddress = _exchangeLBTAndIDOLFactoryContract
             .addressToExchangeLookup(LBTAddress);
 
@@ -191,6 +199,7 @@ contract Wrapper is
         bool isLimit
     ) public override {
         (address SBTAddress, , , ) = _bondMakerContract.getBond(solidBondID);
+        require(SBTAddress != address(0), "the bond is not registered");
 
         // uses: SBT
         _usesERC20(SBTAddress, SBTAmount);
@@ -223,6 +232,8 @@ contract Wrapper is
 
         // 2. swap IDOL -> LBT(exchange)
         (address LBTAddress, , , ) = _bondMakerContract.getBond(liquidBondID);
+        require(LBTAddress != address(0), "the bond is not registered");
+
         _swapIDOL2LBT(LBTAddress, IDOLAmount, timeout, isLimit);
     }
 

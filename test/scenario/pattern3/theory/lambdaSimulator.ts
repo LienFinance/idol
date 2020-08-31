@@ -1,7 +1,17 @@
 import {BigNumber} from "bignumber.js";
 
-import {Pattern3TestCase} from "../utils";
-import {calcSettledPrice, getBoard} from "../generateRandomCase";
+import {
+  Pattern3TestCase,
+  splitBids,
+  GIVE_UP_TO_MAKE_AUCTION_RESULT,
+  getBidPriceLimit,
+} from "../utils";
+import {
+  calcSettledPrice,
+  getBoard,
+  getEndInfo,
+  sortPriceFromBoard,
+} from "../generateRandomCase";
 
 const LOCK_POOL_BORDER = 0.1;
 
@@ -75,63 +85,104 @@ class Pattern3LambdaSimulator {
 
     let totalSoldSBTAmount = new BigNumber(0);
     let totalPaidIDOLAmount = new BigNumber(0);
-    auctions.forEach(({bids, actions}, auctionRestartedCount) => {
-      console.log(
-        "auction " + auctionRestartedCount,
-        totalSoldSBTAmount.toString(10),
-        totalPaidIDOLAmount.toString(10)
-      );
+    auctions.forEach(
+      (
+        {
+          bids,
+          actions,
+          giveUpSortBidPrice,
+          giveUpMakeEndInfo,
+          isReceivingWinBidsLately,
+        },
+        auctionRestartedCount
+      ) => {
+        console.log(
+          "auction " + auctionRestartedCount,
+          totalSoldSBTAmount.toString(10),
+          totalPaidIDOLAmount.toString(10)
+        );
 
-      if (auctionSBTAmount.eq(0)) {
-        return;
+        if (auctionSBTAmount.eq(0)) {
+          return;
+        }
+
+        const strikePriceIDOL = this.calcUSD2IDOL(solidStrikePrice);
+        const {board, settledAmountForUnrevealed} = getBoard(
+          strikePriceIDOL,
+          splitBids(bids)
+        );
+
+        if (auctionSBTAmount.lte(settledAmountForUnrevealed)) {
+          const paidIDOLAmount = this.calcUSD2IDOL(
+            auctionSBTAmount.times(solidStrikePrice)
+          );
+          totalSoldSBTAmount = totalSoldSBTAmount.plus(auctionSBTAmount.dp(8));
+          totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
+          auctionSBTAmount = new BigNumber(0);
+          return;
+        }
+
+        {
+          const paidIDOLAmount = this.calcUSD2IDOL(
+            settledAmountForUnrevealed.times(solidStrikePrice)
+          );
+          totalSoldSBTAmount = totalSoldSBTAmount.plus(
+            settledAmountForUnrevealed.dp(8)
+          );
+          totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
+          auctionSBTAmount = auctionSBTAmount.minus(settledAmountForUnrevealed);
+        }
+
+        if (giveUpSortBidPrice || giveUpMakeEndInfo) {
+          return;
+        }
+
+        const {lowerBidPriceLimit: lowestBidPrice} = getBidPriceLimit(
+          this.calcUSD2IDOL(solidStrikePrice),
+          auctionRestartedCount
+        );
+        const {
+          priceIndex: endPriceIndex,
+          boardIndex,
+          loseSBTAmount,
+          winnerSBTAmountAtEndPrice,
+        } = getEndInfo(auctionSBTAmount, board);
+        console.log(
+          "lambda simulator: end info",
+          endPriceIndex,
+          boardIndex,
+          loseSBTAmount.toString(10),
+          winnerSBTAmountAtEndPrice.toString(10)
+        );
+        const auctionPriceList = sortPriceFromBoard(board);
+        const endPrice = auctionPriceList[endPriceIndex];
+
+        let totalRewardedAmount = new BigNumber(0);
+        Object.keys(actions).forEach((accountIndex) => {
+          const {toPayIDOLAmount, rewardedSBTAmount} = calcSettledPrice(
+            auctionSBTAmount,
+            lowestBidPrice,
+            board,
+            Number(accountIndex)
+          );
+          const {isMakingAuctionResultLately, result} = actions[accountIndex];
+          const paidIDOLAmount =
+            result === null
+              ? this.calcUSD2IDOL(rewardedSBTAmount.times(solidStrikePrice))
+              : isReceivingWinBidsLately ||
+                isMakingAuctionResultLately ||
+                result.myLowestPrice === GIVE_UP_TO_MAKE_AUCTION_RESULT
+              ? rewardedSBTAmount.times(endPrice).dp(8)
+              : toPayIDOLAmount;
+          totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
+          totalSoldSBTAmount = totalSoldSBTAmount.plus(rewardedSBTAmount.dp(8));
+          totalRewardedAmount = totalRewardedAmount.plus(
+            rewardedSBTAmount.dp(8)
+          );
+        });
+        auctionSBTAmount = auctionSBTAmount.minus(totalRewardedAmount.dp(8));
       }
-
-      const strikePriceIDOL = this.calcUSD2IDOL(solidStrikePrice);
-      const {board, totalUnrevealedAmount} = getBoard(strikePriceIDOL, bids);
-
-      if (auctionSBTAmount.lte(totalUnrevealedAmount)) {
-        const paidIDOLAmount = this.calcUSD2IDOL(
-          auctionSBTAmount.times(solidStrikePrice)
-        );
-        totalSoldSBTAmount = totalSoldSBTAmount.plus(auctionSBTAmount.dp(8));
-        totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
-        auctionSBTAmount = new BigNumber(0);
-        return;
-      }
-
-      {
-        const paidIDOLAmount = this.calcUSD2IDOL(
-          totalUnrevealedAmount.times(solidStrikePrice)
-        );
-        totalSoldSBTAmount = totalSoldSBTAmount.plus(
-          totalUnrevealedAmount.dp(8)
-        );
-        totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
-        auctionSBTAmount = auctionSBTAmount.minus(totalUnrevealedAmount);
-      }
-
-      const lowestBidPrice = this.calcUSD2IDOL(solidStrikePrice).times(
-        Math.max(9 - auctionRestartedCount, 1) / 10
-      );
-      let totalRewardedAmount = new BigNumber(0);
-      Object.keys(actions).forEach((accountIndex) => {
-        const {toPayIDOLAmount, rewardedSBTAmount} = calcSettledPrice(
-          auctionSBTAmount,
-          lowestBidPrice,
-          board,
-          Number(accountIndex)
-        );
-
-        const paidIDOLAmount =
-          actions[accountIndex].result === null
-            ? this.calcUSD2IDOL(rewardedSBTAmount.times(solidStrikePrice))
-            : toPayIDOLAmount;
-        totalPaidIDOLAmount = totalPaidIDOLAmount.plus(paidIDOLAmount.dp(8));
-        totalSoldSBTAmount = totalSoldSBTAmount.plus(rewardedSBTAmount.dp(8));
-        totalRewardedAmount = totalRewardedAmount.plus(rewardedSBTAmount.dp(8));
-      });
-      auctionSBTAmount = auctionSBTAmount.minus(totalRewardedAmount.dp(8));
-    });
+    );
 
     if (auctionSBTAmount.lt(0)) {
       throw new Error(

@@ -7,6 +7,7 @@ const maxUint64 = new BigNumber(2).pow(64).minus(1);
 require("dotenv").config();
 
 const {VERSION} = process.env;
+console.log("VERSION:", VERSION);
 const auctionSpanConfigStaging = {
   auctionSpan: 45 * minutes,
   emergencyAuctionSpan: 45 * minutes,
@@ -27,11 +28,31 @@ const auctionSpanConfigProduction = {
   auctionWithdrawSpan: 24 * hours,
   emergencyAuctionWithdrawSpan: 1 * hours,
 };
-const auctionBoardConfig = {
-  maxPriceIndex: 999,
+const bondMakerConfigStaging = {
+  maturityScale: 1,
+};
+const bondMakerConfigProduction = {
+  maturityScale: 3600,
+};
+const stableCoinConfigStaging = {
+  mintIDOLAmountBorder: 10000,
+};
+const stableCoinConfigProduction = {
+  mintIDOLAmountBorder: 500 * 10 ** 8,
+};
+const auctionBoardConfigStaging = {
+  maxPriceIndex: 499,
   maxBoardIndex: maxUint64.toString(10),
   maxBoardIndexAtEndPrice: 999,
   maxBidCountPerAddress: 100,
+  minTargetSBTAmount: 10000,
+};
+const auctionBoardConfigProduction = {
+  maxPriceIndex: 499,
+  maxBoardIndex: maxUint64.toString(10),
+  maxBoardIndexAtEndPrice: 999,
+  maxBidCountPerAddress: 100,
+  minTargetSBTAmount: 10 ** 8,
 };
 const {
   auctionSpan,
@@ -46,12 +67,20 @@ const {
   VERSION === "staging"
     ? auctionSpanConfigStaging
     : auctionSpanConfigProduction;
+const {maturityScale} =
+  VERSION === "staging" ? bondMakerConfigStaging : bondMakerConfigProduction;
+const {mintIDOLAmountBorder} =
+  VERSION === "staging" ? stableCoinConfigStaging : stableCoinConfigProduction;
 const {
   maxPriceIndex,
   maxBoardIndex,
   maxBoardIndexAtEndPrice,
   maxBidCountPerAddress,
-} = auctionBoardConfig;
+  minTargetSBTAmount,
+} =
+  VERSION === "staging"
+    ? auctionBoardConfigStaging
+    : auctionBoardConfigProduction;
 
 module.exports = {
   auctionSpan,
@@ -62,8 +91,11 @@ module.exports = {
   emergencyAuctionRevealSpan,
   auctionWithdrawSpan,
   emergencyAuctionWithdrawSpan,
+  maturityScale,
+  mintIDOLAmountBorder,
   maxPriceIndex,
   maxBoardIndex,
   maxBoardIndexAtEndPrice,
   maxBidCountPerAddress,
+  minTargetSBTAmount,
 };

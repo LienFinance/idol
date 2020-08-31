@@ -1,0 +1,24 @@
+{
+  "errorMessage": "",
+  "users": [1],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 100,
+      "assets": {"1": {"mintingBondAmount": 4, "lockingSBTAmount": 4}},
+      "auctions": [
+        {
+          "bids": [],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

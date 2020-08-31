@@ -1,0 +1,45 @@
+{
+  "errorMessage": "",
+  "users": [0, 1, 2],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 10,
+      "assets": {
+        "1": {"mintingBondAmount": 3, "lockingSBTAmount": 3},
+        "2": {"mintingBondAmount": 2, "lockingSBTAmount": 2}
+      },
+
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 10,
+      "assets": {
+        "0": {"mintingBondAmount": 4.5, "lockingSBTAmount": 4.5}
+      },
+      "auctions": [
+        {
+          "bids": [
+            {"accountIndex": 1, "price": 10, "amount": 2.7, "random": 1},
+            {"accountIndex": 2, "price": 9, "amount": 1.8, "random": 2}
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": 10, "boardIndex": 0}],
+                "myLoseBids": []
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": 9, "boardIndex": 0}],
+                "myLoseBids": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

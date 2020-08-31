@@ -5,7 +5,9 @@ import {
   callRegisterNewBondGroup,
 } from "../bondmaker/callFunction";
 import {BigNumber} from "bignumber.js";
-import {getBlockTimestampSec, days} from "../util";
+import {getBlockTimestampSec, days, advanceTime, mineOneBlock} from "../util";
+import {maturityScale} from "../constants";
+import {describe} from "mocha";
 
 const DecentralizedOTC = artifacts.require("TestDecentralizedOTC");
 const LienToken = artifacts.require("TestLienToken");
@@ -18,7 +20,7 @@ const BondToken = artifacts.require("BondToken");
 const BondTokenName = artifacts.require("BondTokenName");
 
 contract("DecentralizedOTC", (accounts) => {
-  const initRateETH2USD = 120;
+  const initRateETH2USD = 200;
   const initVolatility = 1;
   let DecentralizedOTCContract;
   let LienTokenContract;
@@ -37,6 +39,8 @@ contract("DecentralizedOTC", (accounts) => {
   let testMaturity: number;
   let testLiquidInstance;
   let testAmount;
+  let grantID = 1;
+  let endTime;
 
   before(async () => {
     LienTokenContract = await LienToken.new();
@@ -47,7 +51,8 @@ contract("DecentralizedOTC", (accounts) => {
     BondMakerContract = await BondMaker.new(
       OracleContract.address,
       LienTokenContract.address,
-      BondTokenName.address
+      BondTokenName.address,
+      maturityScale
     );
     LBTPricingContract = await LBTPricing.new();
     ERC20OracleContract = await ERC20Oracle.new();
@@ -58,9 +63,9 @@ contract("DecentralizedOTC", (accounts) => {
     );
     BondTokenContract = await BondToken.new("", "");
 
-    const {periodSecBeforeMaturity, SBTfnMap, LBTfnMap} = dotcTestCases["DecentralizedOTC"][
-      "registerBondAndBondGroup"
-    ][0];
+    const {periodSecBeforeMaturity, SBTfnMap, LBTfnMap} = dotcTestCases[
+      "DecentralizedOTC"
+    ]["registerBondAndBondGroup"][0];
     const now = await getBlockTimestampSec();
     const maturity = now + periodSecBeforeMaturity;
     testMaturity = maturity;
@@ -96,11 +101,12 @@ contract("DecentralizedOTC", (accounts) => {
   describe("setPoolMap", () => {
     it(`case 0`, async () => {
       const nowSec = await getBlockTimestampSec();
+      endTime = nowSec + 10 * 365 * days;
       txResult = await DecentralizedOTCContract.setPoolMap(
         LienTokenContract.address,
         0,
         true,
-        nowSec + 10 * 365 * days
+        endTime
       );
 
       testPoolMap = txResult.logs[0].args.poolID;
@@ -211,6 +217,43 @@ contract("DecentralizedOTC", (accounts) => {
         0,
         100
       );
+      const grantInfo = await LienTokenContract.getGrant(accounts[0], 1);
+      const amount = grantInfo[0];
+
+      const res = await DecentralizedOTCContract.calcRateLBT2ERC20.call(
+        testSBTID,
+        testPoolMap,
+        testMaturity
+      );
+
+      const expectedAmount = new BigNumber(res.toString())
+        .times(100000)
+        .times(9995)
+        .div(10000)
+        .div(10000);
+
+      assert.equal(
+        amount.toString(),
+        expectedAmount.toString(),
+        "unexpected amount"
+      );
+
+      await testLiquidInstance.approve(
+        DecentralizedOTCContract.address,
+        100000
+      );
+      await DecentralizedOTCContract.exchangeLBT2ERC20(
+        1,
+        testPoolMap,
+        100000,
+        0,
+        100
+      );
+      const grantInfo2 = await LienTokenContract.getGrant(accounts[0], 1);
+      const amount2 = grantInfo2[0];
+      console.log("grant amount 1", grantInfo[0].toString());
+      console.log("grant amount 2", grantInfo2[0].toString());
+      //assert.equal(amount.times(2).toString(), amount2.toString(), 'unexpected grant amount');
     });
   });
 
@@ -227,7 +270,53 @@ contract("DecentralizedOTC", (accounts) => {
 
   describe("transferEther2LienHolders", () => {
     it(`case 0`, async () => {
-      await DecentralizedOTCContract.transferEther2LienHolders([testLBTID]);
+      const now = await getBlockTimestampSec();
+      if (testMaturity >= now) {
+        await advanceTime(testMaturity - now + 1);
+        await mineOneBlock();
+      }
+      await OracleContract.testSetOracleData(
+        initRateETH2USD * 100000000,
+        initVolatility * 100000000
+      );
+      await BondMakerContract.liquidateBond(testBondGroupID, 0);
+      const res = await DecentralizedOTCContract.transferEther2LienHolders([
+        testLBTID,
+      ]);
+
+      const {burnedBLTAmount, transferredETHAmount} = (() => {
+        let logs = {};
+        for (let i = 0; i < res.logs.length; i++) {
+          const log = res.logs[i];
+          if (log.event === "LogTransferLBTValueToLien") {
+            const {ETHamount: burnedBLTAmount} = log.args;
+            logs = {...logs, burnedBLTAmount};
+          }
+          if (log.event === "LogTransferETH") {
+            const {value: transferredETHAmount} = log.args;
+            logs = {...logs, transferredETHAmount};
+          }
+        }
+
+        return logs as {burnedBLTAmount: any; transferredETHAmount: any};
+      })();
+
+      console.log(
+        "burnedBLTAmount:     ",
+        new BigNumber(burnedBLTAmount.toString()).shiftedBy(-8).toFixed(8)
+      );
+      console.log(
+        "transferredETHAmount:",
+        new BigNumber(transferredETHAmount.toString())
+          .shiftedBy(-18)
+          .toFixed(18)
+      );
+    });
+  });
+
+  describe("deletePoolAndProvider", () => {
+    it(`case 0`, async () => {
+      await DecentralizedOTCContract.deletePoolAndProvider(testPoolMap);
     });
   });
 });

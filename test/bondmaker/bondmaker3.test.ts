@@ -2,39 +2,27 @@
 // import * as moment from 'moment';
 import testCases from "../testCases";
 import {callRegisterNewBond} from "./callFunction";
+import {getBlockTimestampSec} from "../util";
 
 const BondMaker = artifacts.require("BondMaker");
 
 contract("BondMaker", () => {
-  describe("getBondType", () => {
-    const cases = testCases["BondMaker"]["getBondType"];
-
-    cases.forEach(({success, maturity, fnMap}, caseIndex) => {
-      it(`case ${caseIndex}`, async () => {
-        const bondMakerContract = await BondMaker.deployed();
-        let actualFnMap: string;
-        try {
-          const {bondID: newBondID} = await callRegisterNewBond(
-            bondMakerContract,
-            maturity,
-            fnMap
-          );
-
-          if (!success) {
-            assert.fail(`did not fail to call registerNewBond`);
-          }
-
-          const res = await bondMakerContract.getBond(newBondID);
-          actualFnMap = await bondMakerContract.getFnMap(res[3]);
-        } catch (err) {
-          if (!success) {
-            return;
-          }
-          throw err;
-        }
-
-        assert.equal(actualFnMap, fnMap, `invalid bond type`);
-      });
-    });
-  });
+  // describe('getBondType', () => {
+  //     const cases = testCases['BondMaker']['getBondType'];
+  //     cases.forEach(({ periodSecBeforeMaturity, fnMap }, caseIndex) => {
+  //         it(`case ${caseIndex}`, async () => {
+  //             const bondMakerContract = await BondMaker.deployed();
+  //             const now = await getBlockTimestampSec();
+  //             const maturity = now + periodSecBeforeMaturity;
+  //             const { bondID: newBondID } = await callRegisterNewBond(
+  //                 bondMakerContract,
+  //                 maturity,
+  //                 fnMap
+  //             );
+  //             const res = await bondMakerContract.getBond(newBondID);
+  //             const actualFnMap = await bondMakerContract.getFnMap(res[3]);
+  //             assert.equal(actualFnMap, fnMap, `invalid bond type`);
+  //         });
+  //     });
+  // });
 });

@@ -1,0 +1,150 @@
+{
+  "errorMessage": "",
+  "users": [0, 1, 2, 3, 4],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 120,
+      "assets": {
+        "1": {
+          "mintingBondAmount": 12.5,
+          "lockingSBTAmount": 12.5
+        },
+        "2": {
+          "mintingBondAmount": 3.5,
+          "lockingSBTAmount": 3.5
+        },
+        "3": {
+          "mintingBondAmount": 8,
+          "lockingSBTAmount": 8
+        },
+        "4": {
+          "mintingBondAmount": 1.5,
+          "lockingSBTAmount": 1.5
+        }
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 120,
+      "assets": {
+        "0": {
+          "mintingBondAmount": 10,
+          "lockingSBTAmount": 10
+        }
+      },
+      "auctions": [
+        {
+          "bids": [
+            {
+              "accountIndex": 1,
+              "bidInfoList": [
+                {
+                  "price": 118,
+                  "amount": 0.0001
+                },
+                {
+                  "price": 112,
+                  "amount": 10
+                }
+              ],
+              "amount": 10,
+              "random": 1
+            },
+            {
+              "accountIndex": 2,
+              "bidInfoList": [
+                {
+                  "price": 120,
+                  "amount": 3
+                }
+              ],
+              "amount": 3,
+              "random": 1
+            },
+            {
+              "accountIndex": 3,
+              "bidInfoList": [
+                {
+                  "price": 120,
+                  "amount": 5
+                },
+                {
+                  "price": 110,
+                  "amount": 2
+                }
+              ],
+              "amount": 7,
+              "random": 2
+            },
+            {
+              "accountIndex": 1,
+              "price": 116,
+              "amount": 1,
+              "random": 4
+            },
+            {
+              "accountIndex": 4,
+              "price": 112,
+              "amount": 0.01,
+              "random": 6
+            }
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 116,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 120,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            },
+            "3": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 120,
+                    "boardIndex": 1
+                  },
+                  {
+                    "price": 110,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            },
+            "4": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [],
+                "myLoseBids": [
+                  {
+                    "price": 112,
+                    "boardIndex": 0
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

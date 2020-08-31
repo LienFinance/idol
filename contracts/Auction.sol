@@ -124,18 +124,22 @@ contract Auction is
         {
             AuctionConfig memory auctionConfig = _auctionConfigList[auctionID];
             auctionConfig.ongoingAuctionSBTTotalE8 = auctionAmount;
-            auctionConfig.lowestBidPriceDeadLineE8 = strikePriceIDOL
-                .mul(10 - betaCount)
-                .div(10)
-                .toUint64();
-            auctionConfig.highestBidPriceDeadLineE8 = strikePriceIDOL
-                .mul(10 + betaCount)
-                .div(10)
-                .toUint64();
+            auctionConfig.lowestBidPriceDeadLineE8 = _auctionBoardContract
+                .discretizeBidPrice(
+                strikePriceIDOL
+                    .mul(10 - betaCount)
+                    .divRoundUp(10**(1 + 8))
+                    .mul(10**8)
+                    .toUint64()
+            );
+            auctionConfig.highestBidPriceDeadLineE8 = _auctionBoardContract
+                .discretizeBidPrice(
+                strikePriceIDOL.divRoundUp(10**8).mul(10**8).toUint64()
+            );
             _auctionConfigList[auctionID] = auctionConfig;
         }
 
-        emit LogStartAuction(auctionID, bondID);
+        emit LogStartAuction(auctionID, bondID, auctionAmount);
 
         return auctionID;
     }
@@ -172,7 +176,7 @@ contract Auction is
                     bidPrice > winnerBids[i] ||
                         (bidPrice == winnerBids[i] &&
                             boardIndex < winnerBids[i + 1]),
-                    "loser Bids are not sorted."
+                    "winner bids are not sorted"
                 );
             }
             bidPrice = winnerBids[i];
@@ -184,6 +188,7 @@ contract Auction is
             totalBidAmount = totalBidAmount.add(bidAmount);
             if (endPrice == bidPrice) {
                 if (boardIndex == endBoardIndex) {
+                    // Guarantee loseSBTAmount <= bidAmount in this case.
                     totalBidAmount = totalBidAmount.sub(loseSBTAmount);
                 } else {
                     require(
@@ -420,9 +425,17 @@ contract Auction is
             );
         }
 
-        uint64 IDOLAmountOfChange = auctionLockedIDOLAmountE8
-            .sub(toPay)
-            .toUint64();
+        // IDOLAmountOfChange = max(auctionLockedIDOLAmountE8 - toPay, 0)
+        if (toPay > auctionLockedIDOLAmountE8) {
+            // assertion to prevent from the worst case that accumulate to certain amount by rounding up of toPay.
+            require(
+                toPay.sub(auctionLockedIDOLAmountE8) < 10**8,
+                "system error: does not ignore too big error for spam protection"
+            );
+            toPay = auctionLockedIDOLAmountE8;
+        }
+        uint64 IDOLAmountOfChange = auctionLockedIDOLAmountE8 - toPay;
+
         _auctionBoardContract.deleteParticipantInfo(auctionID, msg.sender);
         _transferIDOL(msg.sender, IDOLAmountOfChange);
 
@@ -621,11 +634,7 @@ contract Auction is
         _auctionBoardContract.removeSecret(auctionID, secret, 0);
 
         // Transfer the winning SBT and (if necessary) return the rest of deposited iDOL.
-        (address solidBondAddress, , , ) = _getBondFromAuctionID(auctionID);
-        BondTokenInterface solidBondContract = BondTokenInterface(
-            payable(solidBondAddress)
-        );
-        solidBondContract.transfer(secOwner, receivingSBTAmount);
+        _distributeToWinners(auctionID, receivingSBTAmount);
         _IDOLContract.transfer(secOwner, returnedIDOLAmount);
 
         return true;
@@ -692,6 +701,7 @@ contract Auction is
     {
         // Get the address of SBT contract.
         (address solidBondAddress, , , ) = _getBondFromAuctionID(auctionID);
+        require(solidBondAddress != address(0), "the bond is not registered");
 
         // Transfer the winning SBT.
         BondTokenInterface solidBondContract = BondTokenInterface(
@@ -772,7 +782,7 @@ contract Auction is
         returns (
             address erc20Address,
             uint256 maturity,
-            uint64 stableStrikePrice,
+            uint64 solidStrikePrice,
             bytes32 fnMapID
         )
     {

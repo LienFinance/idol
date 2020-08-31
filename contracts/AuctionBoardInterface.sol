@@ -28,7 +28,7 @@ interface AuctionBoardInterface {
         bytes32 secret,
         uint64 totalSBTAmountBid,
         bytes calldata memo
-    ) external;
+    ) external returns (uint256 depositedIDOLAmount);
 
     function revealBids(
         bytes32 auctionID,

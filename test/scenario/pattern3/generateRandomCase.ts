@@ -1,6 +1,12 @@
 // import * as fs from 'fs';
 import {BigNumber} from "bignumber.js";
-import {NO_LOWEST_LOSE_BID_PRICE, Pattern3TestCase} from "./utils";
+import {
+  NO_LOWEST_LOSE_BID_PRICE,
+  Pattern3TestCase,
+  getBidPriceLimit,
+} from "./utils";
+import {isDangerSolidBond} from "./theory/solidBondSafety";
+import Pattern3LambdaSimulator from "./theory/lambdaSimulator";
 
 const LOCK_POOL_BORDER = 0.1; // the beta value
 
@@ -42,20 +48,20 @@ export function discretizeBidPrice(
   const priceE8 = new BigNumber(priceE0).shiftedBy(8);
 
   const decimalPlaces = priceE8.lt(5 * 10 ** 8)
-    ? -4
-    : priceE8.lt(5 * 10 ** 9)
     ? -5
-    : priceE8.lt(5 * 10 ** 10)
+    : priceE8.lt(5 * 10 ** 9)
     ? -6
-    : priceE8.lt(5 * 10 ** 11)
+    : priceE8.lt(5 * 10 ** 10)
     ? -7
-    : priceE8.lt(5 * 10 ** 12)
+    : priceE8.lt(5 * 10 ** 11)
     ? -8
-    : priceE8.lt(5 * 10 ** 13)
+    : priceE8.lt(5 * 10 ** 12)
     ? -9
-    : priceE8.lt(5 * 10 ** 14)
+    : priceE8.lt(5 * 10 ** 13)
     ? -10
-    : -11;
+    : priceE8.lt(5 * 10 ** 14)
+    ? -11
+    : -12;
 
   const discretizedPriceE8 = priceE8
     .shiftedBy(decimalPlaces)
@@ -98,6 +104,8 @@ export function getBoard(
     unrevealed?: boolean;
   }[]
 ) {
+  const {upperBidPriceLimit} = getBidPriceLimit(strikePriceIDOL, 0);
+
   // Align the bids according to revealed time.
   bids = [
     ...bids.filter((bidInfo) => bidInfo.early === true),
@@ -105,11 +113,17 @@ export function getBoard(
   ];
   let board: Board = {};
   let totalUnrevealedAmount = new BigNumber(0);
+  let totalIDOLRevealed = new BigNumber(0);
+  let totalIDOLSecret = new BigNumber(0);
   for (const {amount, price, accountIndex, early, unrevealed} of bids) {
     const bidPrice = early
-      ? discretizeBidPrice(strikePriceIDOL)
+      ? discretizeBidPrice(upperBidPriceLimit)
       : discretizeBidPrice(price);
     const bidAmount = new BigNumber(amount).dp(8);
+    const depositingIDOL = bidAmount
+      .times(upperBidPriceLimit)
+      .dp(8, BigNumber.ROUND_UP);
+    totalIDOLSecret = totalIDOLSecret.plus(depositingIDOL);
     if (unrevealed) {
       totalUnrevealedAmount = totalUnrevealedAmount.plus(bidAmount);
       continue;
@@ -123,8 +137,20 @@ export function getBoard(
       amount: bidAmount,
       bidder: accountIndex,
     });
+    totalIDOLRevealed = totalIDOLRevealed.plus(depositingIDOL);
   }
-  return {board, totalUnrevealedAmount};
+
+  const IDOLAmountUnrevealedBid = totalIDOLSecret.minus(totalIDOLRevealed);
+  const settledAmountForUnrevealed = IDOLAmountUnrevealedBid.div(
+    strikePriceIDOL
+  ).dp(8);
+
+  // secret bids which has not revealed, strikePriceIDOL calculated by lambda at the time executing _disposeOfUnrevealedBid().
+  return {
+    board,
+    totalUnrevealedAmount,
+    settledAmountForUnrevealed,
+  };
 }
 
 export function sortPriceFromBoard(board: Board) {
@@ -323,7 +349,7 @@ export function calcSettledPrice(
   lowestBidPrice: BigNumber.Value,
   board: Board,
   bidder: number
-) {
+): {toPayIDOLAmount: BigNumber; rewardedSBTAmount: BigNumber} {
   const settledAmountInit = getWinAmount(auctionSBTAmount, board, bidder);
   if (settledAmountInit.lte(0)) {
     const toPayIDOLAmount = new BigNumber(0);
@@ -359,18 +385,26 @@ export function calcSettledPrice(
 
       if (i == endPriceIndex && j == initJ) {
         if (settledAmount.gt(loseSBTAmount)) {
-          toPay = toPay.plus(loseSBTAmount.times(price));
+          toPay = toPay.plus(
+            loseSBTAmount.times(price).dp(8, BigNumber.ROUND_UP)
+          );
           settledAmount = settledAmount.minus(loseSBTAmount);
         } else {
-          toPay = toPay.plus(settledAmount.times(price));
+          toPay = toPay.plus(
+            settledAmount.times(price).dp(8, BigNumber.ROUND_UP)
+          );
           settledAmount = new BigNumber(0);
           break;
         }
       } else if (settledAmount.gt(bidInfo.amount)) {
-        toPay = toPay.plus(new BigNumber(bidInfo.amount).times(price));
+        toPay = toPay.plus(
+          new BigNumber(bidInfo.amount).times(price).dp(8, BigNumber.ROUND_UP)
+        );
         settledAmount = settledAmount.minus(bidInfo.amount);
       } else {
-        toPay = toPay.plus(settledAmount.times(price));
+        toPay = toPay.plus(
+          settledAmount.times(price).dp(8, BigNumber.ROUND_UP)
+        );
         settledAmount = new BigNumber(0);
         break;
       }
@@ -381,6 +415,16 @@ export function calcSettledPrice(
     }
   }
 
-  toPay = toPay.plus(settledAmount.times(lowestBidPrice));
-  return {toPayIDOLAmount: toPay, rewardedSBTAmount: settledAmountInit};
+  toPay = toPay.plus(
+    settledAmount.times(lowestBidPrice).dp(8, BigNumber.ROUND_UP)
+  );
+  console.log(
+    settledAmount.toString(10),
+    lowestBidPrice,
+    settledAmount.times(lowestBidPrice).dp(8, BigNumber.ROUND_UP).toString(10)
+  );
+  return {
+    toPayIDOLAmount: toPay,
+    rewardedSBTAmount: settledAmountInit,
+  };
 }

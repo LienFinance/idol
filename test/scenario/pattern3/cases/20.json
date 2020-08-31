@@ -222,7 +222,13 @@
               "random": 2,
               "early": true
             },
-            {"accountIndex": 1, "price": 93, "amount": 2, "random": 3},
+            {
+              "accountIndex": 1,
+              "price": 93,
+              "amount": 2,
+              "random": 3,
+              "isDelegated": true
+            },
             {
               "accountIndex": 2,
               "price": 92,
@@ -245,7 +251,9 @@
             "2": {
               "result": {
                 "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
-                "myWinBids": [{"price": 100, "boardIndex": 0}],
+                "myWinBids": [
+                  {"price": "UPPER_BID_PRICE_LIMIT", "boardIndex": 0}
+                ],
                 "myLoseBids": []
               }
             }

@@ -8,14 +8,16 @@ contract TestStableCoin is StableCoin {
         address oracleAddress,
         address bondMakerAddress,
         uint256 auctionSpan,
-        uint256 emergencyAuctionSpan
+        uint256 emergencyAuctionSpan,
+        uint256 mintIDOLAmountBorder
     )
         public
         StableCoin(
             oracleAddress,
             bondMakerAddress,
             auctionSpan,
-            emergencyAuctionSpan
+            emergencyAuctionSpan,
+            mintIDOLAmountBorder
         )
     {}
 
@@ -104,9 +106,19 @@ contract TestStableCoin is StableCoin {
             .toUint64();
     }
 
-    function isAcceptableSBT(bytes32 bondID) public override returns (bool) {
-        (, uint256 maturity, uint64 solidStrikePriceE4, ) = _bondMakerContract
-            .getBond(bondID);
+    function isAcceptableSBT(bytes32 bondID)
+        public
+        override
+        isNotEmptyAuctionInstance
+        returns (bool)
+    {
+        (
+            address bondTokenAddress,
+            uint256 maturity,
+            uint64 solidStrikePriceE4,
+
+        ) = _bondMakerContract.getBond(bondID);
+        require(bondTokenAddress != address(0), "the bond is not registered");
         require(
             solidStrikePriceE4 != 0,
             "the bond does not match to the form of SBT"
@@ -114,6 +126,13 @@ contract TestStableCoin is StableCoin {
         require(
             maturity > _getBlockTimestampSec() + AUCTION_SPAN,
             "a request to hold an auction of the bond has already expired"
+        );
+        // require(solidStrikePriceE4 % (10**5) == 0, "the strike price need to be $ 10*X");
+
+        bytes32 auctionID = _auctionContract.getCurrentAuctionID(bondID);
+        require(
+            _auctionContract.ongoingAuctionSBTTotal(auctionID) == 0,
+            "this SBT is on a auciton"
         );
 
         (uint256 rateETH2USDE8, uint256 volatilityE8) = _getOracleData();

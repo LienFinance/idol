@@ -1,14 +1,19 @@
 import {BigNumber} from "bignumber.js";
 import {days} from "../../util";
-
-export const NO_LOWEST_LOSE_BID_PRICE = "NO_LOWEST_LOSE_BID_PRICE";
+import {
+  NO_LOWEST_LOSE_BID_PRICE,
+  UPPER_BID_PRICE_LIMIT,
+} from "../pattern3/utils";
 
 /**
  * @param invalidMyLowestPrice is true if myWinBids and myLoseBids is valid and myLowestPrice is invalid.
  */
 type AuctionResult = {
   invalidMyLowestPrice?: boolean;
-  myLowestPrice: BigNumber.Value | typeof NO_LOWEST_LOSE_BID_PRICE; // unit: iDOL/BT, dp: 8
+  myLowestPrice:
+    | BigNumber.Value
+    | typeof NO_LOWEST_LOSE_BID_PRICE
+    | typeof UPPER_BID_PRICE_LIMIT; // unit: iDOL/BT, dp: 8
   myLoseBids: {
     boardIndex: number;
     price: BigNumber.Value; // unit: iDOL/BT, dp: 8
@@ -49,7 +54,7 @@ type EtherStatus = {
 /**
  * @param etherStatus can simulate the ETH rate when executing a certain action.
  */
-type Pattern3BondGroup = {
+type Pattern4BondGroup = {
   solidStrikePrice: BigNumber.Value; // unit: USD/BT, dp: 4
   untilMaturity?: number;
   schedules: {
@@ -76,7 +81,7 @@ export type Pattern4TestCase = {
   abstraction?: string;
   errorMessage: string;
   users: number[];
-  bondGroups: Pattern3BondGroup[];
+  bondGroups: Pattern4BondGroup[];
 };
 
 const pat4case0: Pattern4TestCase = {
@@ -879,7 +884,9 @@ const pat4case2: Pattern4TestCase = {
                 "2": {
                   result: {
                     myLowestPrice: "NO_LOWEST_LOSE_BID_PRICE",
-                    myWinBids: [{price: 100, boardIndex: 0}],
+                    myWinBids: [
+                      {price: "UPPER_BID_PRICE_LIMIT", boardIndex: 0},
+                    ],
                     myLoseBids: [],
                   },
                 },
@@ -942,7 +949,9 @@ const pat4case2: Pattern4TestCase = {
                 "2": {
                   result: {
                     myLowestPrice: "NO_LOWEST_LOSE_BID_PRICE",
-                    myWinBids: [{price: 100, boardIndex: 0}],
+                    myWinBids: [
+                      {price: "UPPER_BID_PRICE_LIMIT", boardIndex: 0},
+                    ],
                     myLoseBids: [],
                   },
                 },

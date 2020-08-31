@@ -1,12 +1,8 @@
-pragma solidity ^0.6.6;
+pragma solidity 0.6.6;
 
 import "../../node_modules/@openzeppelin/contracts/math/SafeMath.sol";
 import "../../node_modules/@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-
-/**
- * @notice THIS FILE IS JUST A COPY FOR TEST. NOT TO BE USED IN MAINNET THEN THIS IS NOT FOR AUDIT.
- */
 
 /**
  * @notice Vestable ERC20 Token.
@@ -18,7 +14,7 @@ import "../../node_modules/@openzeppelin/contracts/token/ERC20/ERC20.sol";
  * The vesting of the grant is directly proportionally to the elapsed time since the start time.
  * At the end time, all the tokens of the grant is finally vested.
  * When the beneficiary claims the vested tokens, the tokens become spendable.
- * You can additionally deposit tokens to the already started grants to increase the amount of the vesting.
+ * You can additionally deposit tokens to the already started grants to increase the amount vested.
  * In such a case, some part of the tokens immediately become vested proportionally to the elapsed time since the start time.
  */
 abstract contract ERC20Vestable is ERC20 {
@@ -27,8 +23,8 @@ abstract contract ERC20Vestable is ERC20 {
     struct Grant {
         uint256 amount; // total of deposited tokens to the grant
         uint256 claimed; // total of claimed vesting of the grant
-        uint256 startTime; // the time when the grant starts
-        uint256 endTime; // the time when the grant ends
+        uint128 startTime; // the time when the grant starts
+        uint128 endTime; // the time when the grant ends
     }
 
     // account => Grant[]
@@ -41,18 +37,18 @@ abstract contract ERC20Vestable is ERC20 {
      * @notice Sum of not yet claimed grants.
      * It includes already vested but not claimed grants.
      */
-    uint256 public totalRemainingGrant;
+    uint256 public totalRemainingGrants;
 
     event CreateGrant(
-        address beneficiary,
-        address creator,
-        uint256 id,
+        address indexed beneficiary,
+        uint256 indexed id,
+        address indexed creator,
         uint256 endTime
     );
     event DepositToGrant(
-        address beneficiary,
-        uint256 id,
-        address depositor,
+        address indexed beneficiary,
+        uint256 indexed id,
+        address indexed depositor,
         uint256 amount
     );
     event ClaimVestedTokens(address beneficiary, uint256 id, uint256 amount);
@@ -67,7 +63,7 @@ abstract contract ERC20Vestable is ERC20 {
 
     /**
      * @notice Creates new grant and starts it.
-     * @param beneficiary receipt of vested tokens of the grant.
+     * @param beneficiary recipient of vested tokens of the grant.
      * @param endTime Time at which all the tokens of the grant will be vested.
      * @return id of the grant.
      */
@@ -76,17 +72,17 @@ abstract contract ERC20Vestable is ERC20 {
         returns (uint256)
     {
         require(endTime > now, "endTime is before now");
-        Grant memory g = Grant(0, 0, now, endTime);
+        Grant memory g = Grant(0, 0, uint128(now), uint128(endTime));
         address creator = msg.sender;
         grants[beneficiary].push(g);
         uint256 id = grants[beneficiary].length;
-        emit CreateGrant(beneficiary, creator, id, endTime);
+        emit CreateGrant(beneficiary, id, creator, endTime);
         return id;
     }
 
     /**
      * @notice Deposits tokens to grant.
-     * @param beneficiary receipt of vested tokens of the grant.
+     * @param beneficiary recipient of vested tokens of the grant.
      * @param id id of the grant.
      * @param amount amount of tokens.
      */
@@ -100,21 +96,26 @@ abstract contract ERC20Vestable is ERC20 {
         _transfer(depositor, beneficiary, amount);
         g.amount = g.amount.add(amount);
         remainingGrants[beneficiary] = remainingGrants[beneficiary].add(amount);
-        totalRemainingGrant = totalRemainingGrant.add(amount);
+        totalRemainingGrants = totalRemainingGrants.add(amount);
         emit DepositToGrant(beneficiary, id, depositor, amount);
     }
 
     /**
      * @notice Claims spendable vested tokens of the grant which are vested after the last claiming.
-     * @param beneficiary receipt of vested tokens of the grant.
+     * @param beneficiary recipient of vested tokens of the grant.
      * @param id id of the grant.
      */
     function claimVestedTokens(address beneficiary, uint256 id) public {
         Grant storage g = _getGrant(beneficiary, id);
         uint256 amount = _vestedAmount(g);
-        g.claimed = g.claimed.add(amount);
+        require(amount != 0, "vested amount is zero");
+        uint256 newClaimed = g.claimed.add(amount);
+        g.claimed = newClaimed;
         remainingGrants[beneficiary] = remainingGrants[beneficiary].sub(amount);
-        totalRemainingGrant = totalRemainingGrant.sub(amount);
+        totalRemainingGrants = totalRemainingGrants.sub(amount);
+        if (newClaimed == g.amount) {
+            _deleteGrant(beneficiary, id);
+        }
         emit ClaimVestedTokens(beneficiary, id, amount);
     }
 
@@ -128,7 +129,7 @@ abstract contract ERC20Vestable is ERC20 {
 
     /**
      * @notice Returns information of grant
-     * @param beneficiary receipt of vested tokens of the grant.
+     * @param beneficiary recipient of vested tokens of the grant.
      * @param id id of the grant.
      * @return amount is the total of deposited tokens
      * @return claimed is the total of already claimed spendable tokens.
@@ -147,7 +148,7 @@ abstract contract ERC20Vestable is ERC20 {
             uint256 endTime
         )
     {
-        Grant storage g = _getGrant(beneficiary, id);
+        Grant memory g = _getGrant(beneficiary, id);
         amount = g.amount;
         claimed = g.claimed;
         vested = _vestedAmount(g);
@@ -174,24 +175,35 @@ abstract contract ERC20Vestable is ERC20 {
         super._transfer(from, to, amount);
     }
 
+    function _deleteGrant(address beneficiary, uint256 id) private {
+        delete grants[beneficiary][id - 1];
+    }
+
     function _getGrant(address beneficiary, uint256 id)
         private
         view
         returns (Grant storage)
     {
-        require(id > 0, "0 is invalid as id");
-        require(id <= grants[beneficiary].length, "grant does not exist");
-        return grants[beneficiary][id - 1];
+        require(id != 0, "0 is invalid as id");
+        id = id - 1;
+        require(id < grants[beneficiary].length, "grant does not exist");
+        Grant storage g = grants[beneficiary][id];
+        // check if the grant is deleted
+        require(
+            g.endTime != 0,
+            "cannot get grant which is already claimed entirely"
+        );
+        return g;
     }
 
     /**
      * @dev Returns tokens that were vested after the last claiming.
      */
-    function _vestedAmount(Grant storage g) private view returns (uint256) {
+    function _vestedAmount(Grant memory g) private view returns (uint256) {
         uint256 n = now;
         if (g.endTime > n) {
-            uint256 elapsed = n.sub(g.startTime);
-            uint256 duration = g.endTime.sub(g.startTime);
+            uint256 elapsed = n - g.startTime;
+            uint256 duration = g.endTime - g.startTime;
             return g.amount.mul(elapsed).div(duration).sub(g.claimed);
         }
         return g.amount.sub(g.claimed);

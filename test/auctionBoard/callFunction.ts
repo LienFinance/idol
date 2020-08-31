@@ -28,16 +28,18 @@ export async function callRevealBids(
   ...params: Parameters<typeof auctionBoardContract.revealBids>
 ) {
   const res = await auctionBoardContract.revealBids(...params);
+  console.log("gasUsed:", res.receipt.gasUsed);
+  const revealedBids = new Array<{bidPrice: string; boardIndex: number}>();
   for (const log of res.logs) {
     if (isLogInsertBoardType(log)) {
-      return {
+      revealedBids.push({
         bidPrice: log.args.bidPrice.toString(10),
         boardIndex: log.args.boardIndex.toNumber(),
-      };
+      });
     }
   }
 
-  throw new Error("event log of revealBid was not found");
+  return revealedBids;
 }
 
 export type AuctionStatus = {

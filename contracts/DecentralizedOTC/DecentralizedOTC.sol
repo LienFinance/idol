@@ -50,8 +50,14 @@ contract DecentralizedOTC is
     }
     mapping(bytes32 => OracleInfo) public oracleInfo;
 
-    event LogLienTokenLBTSwap(
+    /**
+     * @dev poolID => (userAddress => grantID)
+     */
+    mapping(bytes32 => mapping(address => uint256)) public pool2Grant;
+
+    event LogERC20TokenLBTSwap(
         address indexed sender,
+        address indexed ERC20Address,
         uint256 paidLBTAmount,
         uint256 receivedERC20Amount
     );
@@ -86,7 +92,15 @@ contract DecentralizedOTC is
         bool isVestable,
         uint256 vestingEndTime
     ) public returns (bytes32 erc20PoolID) {
-        erc20PoolID = keccak256(abi.encodePacked(msg.sender, ERC20Address));
+        erc20PoolID = keccak256(
+            abi.encode(
+                msg.sender,
+                ERC20Address,
+                spread,
+                isVestable,
+                vestingEndTime
+            )
+        );
         require(deployer[erc20PoolID] == address(0), "already registered");
         poolMap[erc20PoolID] = PoolInfo(
             ERC20Address,
@@ -141,7 +155,8 @@ contract DecentralizedOTC is
         uint256 maturity
     ) public view returns (uint256) {
         require(
-            _getBlockTimestampSec() < maturity && _getBlockTimestampSec() >= maturity - 12 weeks,
+            _getBlockTimestampSec() < maturity &&
+                _getBlockTimestampSec() >= maturity - 12 weeks,
             "LBT should not have expired and the maturity should not be so distant"
         );
         uint256 untilMaturity = maturity.sub(_getBlockTimestampSec());
@@ -256,6 +271,7 @@ contract DecentralizedOTC is
 
         (address contractAddress, uint256 maturity, , ) = _bondMakerContract
             .getBond(lbtID);
+        require(contractAddress != address(0), "the bond is not registered");
         ERC20 bondToken = ERC20(contractAddress);
 
         uint256 feeAmount = LBTAmount.mul(5).div(10000);
@@ -282,17 +298,21 @@ contract DecentralizedOTC is
 
         token.transferFrom(deployer[erc20PoolID], address(this), ERC20Amount);
 
-        uint256 endTime;
         if (pool.vestable) {
-            uint256 lastGrant = token.getLastGrantID(msg.sender);
-            if (lastGrant != 0) {
-                (, , , , endTime) = token.getGrant(msg.sender, lastGrant);
-            }
-            if (endTime == pool.endTime) {
-                token.depositToGrant(msg.sender, lastGrant, ERC20Amount);
-            } else {
+            require(
+                _getBlockTimestampSec() < pool.endTime,
+                "pool ended. grant endTime has already exceeded"
+            );
+            /**
+             *@dev search the registered grant for this pool. If no grant, create new one for this pool.
+             */
+            uint256 specifiedGrant = pool2Grant[erc20PoolID][msg.sender];
+            if (specifiedGrant == 0) {
                 uint256 grantID = token.createGrant(msg.sender, pool.endTime);
+                pool2Grant[erc20PoolID][msg.sender] = grantID;
                 token.depositToGrant(msg.sender, grantID, ERC20Amount);
+            } else {
+                token.depositToGrant(msg.sender, specifiedGrant, ERC20Amount);
             }
         } else {
             token.transfer(msg.sender, ERC20Amount);
@@ -302,7 +322,12 @@ contract DecentralizedOTC is
             LBTList[lbtID] = true;
         }
 
-        emit LogLienTokenLBTSwap(msg.sender, LBTAmount, ERC20Amount);
+        emit LogERC20TokenLBTSwap(
+            msg.sender,
+            address(token),
+            LBTAmount,
+            ERC20Amount
+        );
     }
 
     /**
@@ -324,6 +349,10 @@ contract DecentralizedOTC is
         for (uint256 i = 0; i < lbtIDList.length; i++) {
             bytes32 lbtID = lbtIDList[i];
             (address contractAddress, , , ) = _bondMakerContract.getBond(lbtID);
+            require(
+                contractAddress != address(0),
+                "the bond is not registered"
+            );
             BondTokenInterface lbtContract = BondTokenInterface(
                 payable(contractAddress)
             );
@@ -336,5 +365,11 @@ contract DecentralizedOTC is
         }
 
         _transferETH(payable(LIEN_TOKEN_ADDRESS), address(this).balance);
+    }
+
+    function deletePoolAndProvider(bytes32 erc20PoolID) public {
+        require(deployer[erc20PoolID] == msg.sender, "this pool is not owned");
+        delete poolMap[erc20PoolID];
+        delete oracleInfo[erc20PoolID];
     }
 }

@@ -1,6 +1,6 @@
 import {
-  TestStableCoinInstance,
-  TestBondMakerInstance,
+  BondMakerInstance,
+  StableCoinInstance,
 } from "../../../types/truffle-contracts";
 import {callGetBond} from "../../bondmaker/callFunction";
 import {
@@ -54,11 +54,16 @@ export function pat3Desc() {
 export function balanceLoggerFactory(
   accounts: Truffle.Accounts,
   users: number[],
-  IDOLContract: TestStableCoinInstance,
-  bondMakerContract: TestBondMakerInstance
+  IDOLContract: StableCoinInstance,
+  bondMakerContract: BondMakerInstance
 ) {
   return async (name: string, bondIDs: string[], gasUsed?: number) => {
-    const logger = new MarkDownLogger().h2(name).h3("Balance").itemizeStart();
+    const logger = new MarkDownLogger()
+      .log(name)
+      .br()
+      .log("Balance")
+      .br()
+      .itemizeStart();
 
     for (const accountIndex of users) {
       const iDOLBalance = await IDOLContract.balanceOf(accounts[accountIndex]);

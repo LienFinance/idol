@@ -31,10 +31,10 @@ module.exports = async (deployer) => {
     );
     const auctionContract = await Auction.deployed();
 
-    const idolTokenContract = await StableCoin.deployed();
+    const idolTokenContract = await StableCoin.at(data.idolToken);
     await idolTokenContract.setAuctionContract(auctionContract.address);
 
-    const auctionBoardContract = await AuctionBoard.deployed();
+    const auctionBoardContract = await AuctionBoard.at(data.auctionBoard);
     await auctionBoardContract.setAuctionContract(auctionContract.address);
 
     const output = {

@@ -8,8 +8,17 @@ contract TestBondMaker is BondMaker {
     constructor(
         address oracleAddress,
         address lienTokenAddress,
-        address bondTokenNameAddress
-    ) public BondMaker(oracleAddress, lienTokenAddress, bondTokenNameAddress) {}
+        address bondTokenNameAddress,
+        uint256 maturityScale
+    )
+        public
+        BondMaker(
+            oracleAddress,
+            lienTokenAddress,
+            bondTokenNameAddress,
+            maturityScale
+        )
+    {}
 
     function testIssueBond(
         bytes32 bondID,

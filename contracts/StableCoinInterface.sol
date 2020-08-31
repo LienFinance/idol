@@ -90,6 +90,10 @@ interface StableCoinInterface is IERC20 {
         external
         returns (uint64 IDOLAmount);
 
+    function returnLockedPoolTo(bytes32[] calldata poolIDs, address account)
+        external
+        returns (uint64 IDOLAmount);
+
     function generatePoolID(bytes32 bondID, uint64 count)
         external
         pure

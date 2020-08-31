@@ -1,5 +1,4 @@
 import {
-  nullAddress,
   lineSegmentToFnMap,
   days,
   FlattenLineSegment,
@@ -9,9 +8,6 @@ import {BigNumber} from "bignumber.js";
 import {Pattern3TestCase} from "./scenario/pattern3/utils";
 
 const BN = BigNumber;
-
-const unixTimeSecNow = 0 * days;
-const unixTimeSecOneDayLater = 1 * days;
 
 const lineSegmentList = [
   [0, 0, 100, 100], // 0
@@ -96,20 +92,6 @@ assertBondGroup([
   ],
 ]);
 
-const addressList = ["0xAA14806cE5Ab8e55F04dd7EF038a5B26839B8651"];
-
-const bondIDList = [
-  "0x50eb17bb96454ca9674fa37f077ac7e37b34b66d52e12dcca25e1236764201a3",
-  "0xbd20116eb6f14261f4a8cb2e5ede7dc2e23a76cef57fa2f3d2a77dd530c67e19",
-  "0x817a240f34cdb467b0786fdd4bc87cc3677d71cceffc7a55b41578df688fe107",
-  "0x5da32112abcdde26b6bfc592a94847f83269205831e0c64c5995fe507eaee5ca",
-];
-
-const secretList = [
-  "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
-  "0x692b69ed857cf210706dca48eebdf766504c3950dad35c5a67f6e9a258715d12",
-];
-
 const auctionIDList = [
   "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
   "0x692b69ed857cf210706dca48eebdf766504c3950dad35c5a67f6e9a258715d12",
@@ -120,36 +102,32 @@ const testCases = {
     generateBondID: [
       {
         success: true,
-        maturity: unixTimeSecNow,
+        maturity: 0,
         fnMap: fnMapSolid1,
-        bondID: bondIDList[0],
+        bondID:
+          "0x50eb17bb96454ca9674fa37f077ac7e37b34b66d52e12dcca25e1236764201a3",
       },
     ],
     registerNewBond: [
       {
         errorMessage: "",
-        maturity: unixTimeSecNow,
+        periodSecBeforeMaturity: 4 * days,
         fnMap: fnMapSolid1,
-        bondID: bondIDList[0],
       },
       {
         errorMessage: "",
-        maturity: unixTimeSecOneDayLater,
+        periodSecBeforeMaturity: 46,
         fnMap: fnMapSolid1,
-        bondID: bondIDList[2],
       },
       {
         errorMessage: "",
-        maturity: unixTimeSecNow,
+        periodSecBeforeMaturity: 4 * days,
         fnMap: fnMapLiquid1,
-        bondID: bondIDList[3],
       },
       {
         errorMessage: "",
-        maturity: unixTimeSecOneDayLater - 1,
+        periodSecBeforeMaturity: 4 * days,
         fnMap: fnMapImmortal1,
-        bondID:
-          "0x988545023035c4b17bb9d61e0ad19509464e8f8ab0e9c7352c947282490d136e",
       },
     ],
     reverseBondToETH: [
@@ -161,14 +139,14 @@ const testCases = {
       },
       {
         errorMessage:
-          "Returned error: VM Exception while processing transaction: revert insufficient bond token balance -- Reason given: insufficient bond token balance.",
+          "Returned error: VM Exception while processing transaction: revert failed to burn bond token -- Reason given: failed to burn bond token.",
         mintSBTAmount: "0.01",
         burnSBTAmount: "0.011",
         expired: false,
       },
       {
         errorMessage:
-          "Returned error: VM Exception while processing transaction: revert already expired -- Reason given: already expired.",
+          "Returned error: VM Exception while processing transaction: revert the maturity has already expired -- Reason given: the maturity has already expired.",
         mintSBTAmount: "0.01",
         burnSBTAmount: "0.01",
         expired: true,
@@ -177,29 +155,187 @@ const testCases = {
     exchangeEquivalentBonds: [
       {
         errorMessage: "",
-        BTAmount: "0.01",
+        periodSecBeforeMaturity: 3 * days,
+        inputBondGroup: {
+          fnMaps: [fnMapSolid2, fnMapLiquid2],
+        },
+        outputBondGroup: {
+          fnMaps: [
+            lineSegmentToFnMap([
+              [0, 0, 100, 100],
+              [100, 100, 240, 140],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 100, 0],
+              [100, 0, 240, 60],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 100, 0],
+              [100, 0, 240, 40],
+            ]),
+          ],
+        },
+        mintingAmount: "0.01",
       },
-    ],
-    getBond: [
       {
-        maturity: unixTimeSecNow,
-        stableStrikePrice: lineSegmentList[0][2],
-        fnMap: fnMapSolid1,
-        bondID: bondIDList[0],
-      },
-    ],
-    getBondType: [
-      {
-        success: true,
-        maturity: unixTimeSecNow,
-        fnMap: fnMapSolid1,
-        bondID: bondIDList[0],
+        errorMessage: "",
+        periodSecBeforeMaturity: 3 * days,
+        inputBondGroup: {
+          fnMaps: [fnMapSolid2, fnMapLiquid2],
+        },
+        outputBondGroup: {
+          fnMaps: [fnMapSolid2, fnMapImmortal1, fnMapImmortal2, fnMapImmortal3],
+        },
+        mintingAmount: "0.01",
       },
       {
-        success: false,
-        maturity: unixTimeSecNow,
-        fnMap: fnMapSolid1,
-        bondID: bondIDList[1],
+        errorMessage: "",
+        periodSecBeforeMaturity: 3 * days,
+        inputBondGroup: {
+          fnMaps: [fnMapSolid2, fnMapImmortal1, fnMapImmortal2, fnMapImmortal3],
+        },
+        outputBondGroup: {
+          fnMaps: [fnMapSolid2, fnMapImmortal1, fnMapImmortal2, fnMapImmortal3],
+        },
+        mintingAmount: "0.01",
+      },
+      {
+        errorMessage: "",
+        periodSecBeforeMaturity: 3 * days,
+        inputBondGroup: {
+          fnMaps: [
+            lineSegmentToFnMap([
+              [0, 0, 100, 100],
+              [100, 100, 200, 100],
+              [200, 100, 240, 100],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 5, 0],
+              [5, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 10, 0],
+              [10, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 15, 0],
+              [15, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 20, 0],
+              [20, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 25, 0],
+              [25, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 30, 0],
+              [30, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 35, 0],
+              [35, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 40, 0],
+              [40, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 45, 0],
+              [45, 0, 100, 0],
+              [100, 0, 200, 5],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 100, 0],
+              [100, 0, 200, 55],
+            ]),
+          ],
+        },
+        outputBondGroup: {
+          fnMaps: [
+            lineSegmentToFnMap([
+              [0, 0, 100, 100],
+              [100, 100, 200, 100],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 100, 0],
+              [100, 0, 200, 100],
+              [200, 100, 300, 0],
+              [300, 0, 400, 300],
+              [400, 300, 500, 0],
+              [500, 0, 600, 500],
+              [600, 500, 700, 0],
+              [700, 0, 800, 700],
+              [800, 700, 900, 0],
+              [900, 0, 1000, 900],
+              [1000, 900, 1100, 0],
+              [1100, 0, 1200, 1100],
+              [1200, 1100, 1300, 0],
+              [1300, 0, 1400, 1300],
+              [1400, 1300, 1500, 0],
+              [1500, 0, 1600, 1500],
+              [1600, 1500, 1700, 0],
+              [1700, 0, 1800, 1700],
+              [1800, 1700, 1900, 0],
+              [1900, 0, 2000, 1900],
+              [2000, 1900, 2100, 0],
+              [2100, 0, 2200, 2100],
+              [2200, 2100, 2300, 0],
+              [2300, 0, 2400, 2300],
+              [2400, 2300, 2500, 0],
+              [2500, 0, 2600, 2500],
+              [2600, 2500, 2700, 0],
+              [2700, 0, 2800, 2700],
+              [2800, 2700, 2900, 0],
+              [2900, 0, 3000, 2900],
+              [3000, 2900, 3100, 0],
+              [3100, 0, 3200, 0],
+            ]),
+            lineSegmentToFnMap([
+              [0, 0, 200, 0],
+              [200, 0, 300, 200],
+              [300, 200, 400, 0],
+              [400, 0, 500, 400],
+              [500, 400, 600, 0],
+              [600, 0, 700, 600],
+              [700, 600, 800, 0],
+              [800, 0, 900, 800],
+              [900, 800, 1000, 0],
+              [1000, 0, 1100, 1000],
+              [1100, 1000, 1200, 0],
+              [1200, 0, 1300, 1200],
+              [1300, 1200, 1400, 0],
+              [1400, 0, 1500, 1400],
+              [1500, 1400, 1600, 0],
+              [1600, 0, 1700, 1600],
+              [1700, 1600, 1800, 0],
+              [1800, 0, 1900, 1800],
+              [1900, 1800, 2000, 0],
+              [2000, 0, 2100, 2000],
+              [2100, 2000, 2200, 0],
+              [2200, 0, 2300, 2200],
+              [2300, 2200, 2400, 0],
+              [2400, 0, 2500, 2400],
+              [2500, 2400, 2600, 0],
+              [2600, 0, 2700, 2600],
+              [2700, 2600, 2800, 0],
+              [2800, 0, 2900, 2800],
+              [2900, 2800, 3000, 0],
+              [3000, 0, 3100, 3000],
+              [3100, 3000, 3200, 3100],
+            ]),
+          ],
+        },
+        mintingAmount: "0.01",
       },
     ],
     testGetFnMapProperties: [
@@ -223,15 +359,15 @@ const testCases = {
       {
         errorMessage: "",
         bondGroup: {
-          maturity: unixTimeSecNow,
+          periodSecBeforeMaturity: 4 * days,
         },
         bondTypes: [
           {
-            maturity: unixTimeSecNow,
+            periodSecBeforeMaturity: 4 * days,
             fnMap: fnMapSolid1,
           },
           {
-            maturity: unixTimeSecNow,
+            periodSecBeforeMaturity: 4 * days,
             fnMap: fnMapLiquid1,
           },
         ],
@@ -241,15 +377,15 @@ const testCases = {
         errorMessage:
           "Returned error: VM Exception while processing transaction: revert the maturity of the bonds must be same -- Reason given: the maturity of the bonds must be same.",
         bondGroup: {
-          maturity: unixTimeSecNow,
+          periodSecBeforeMaturity: 4 * days,
         },
         bondTypes: [
           {
-            maturity: unixTimeSecNow,
+            periodSecBeforeMaturity: 4 * days,
             fnMap: fnMapSolid1,
           },
           {
-            maturity: unixTimeSecNow + 1,
+            periodSecBeforeMaturity: 4 * days + 1,
             fnMap: fnMapLiquid1,
           },
         ],
@@ -260,15 +396,6 @@ const testCases = {
       {
         success: true,
         underlyingAmount: 0.001,
-      },
-    ],
-    liquidateBond: [
-      {
-        success: true,
-        bondGroupID: "1",
-        timestampLiquidate: unixTimeSecOneDayLater,
-        returnedCollaterals: 0,
-        price: "0",
       },
     ],
   },
@@ -397,8 +524,7 @@ const testCases = {
           [],
           [
             {
-              auctionID:
-                "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
+              auctionID: auctionIDList[0],
               closingTime: 1209600,
               auctionAmount: "0",
               rewardedAmount: "0",
@@ -410,8 +536,7 @@ const testCases = {
           ],
           [
             {
-              auctionID:
-                "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
+              auctionID: auctionIDList[0],
               closingTime: 1209600,
               auctionAmount: "0",
               rewardedAmount: "0",
@@ -423,8 +548,7 @@ const testCases = {
           ],
           [
             {
-              auctionID:
-                "0x692b69ed857cf210706dca48eebdf766504c3950dad35c5a67f6e9a258715d12",
+              auctionID: auctionIDList[1],
               closingTime: 1814400,
               auctionAmount: "0",
               rewardedAmount: "0",
@@ -457,16 +581,9 @@ const testCases = {
         },
         output: [
           [],
-          [
-            "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
-          ],
-          [
-            "0xd512dcc04c148e00a9ed8c4b8f3fc930d54ff841e58d0923b19f504717aecc66",
-            "0x692b69ed857cf210706dca48eebdf766504c3950dad35c5a67f6e9a258715d12",
-          ],
-          [
-            "0x692b69ed857cf210706dca48eebdf766504c3950dad35c5a67f6e9a258715d12",
-          ],
+          [auctionIDList[0]],
+          [auctionIDList[0], auctionIDList[1]],
+          [auctionIDList[1]],
         ],
       },
     ],
@@ -501,17 +618,17 @@ const testCases = {
               {
                 priceType: "USD",
                 bids: [
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0100", amount: 1},
-                  {accountIndex: 2, price: "90.0200", amount: 1},
-                  {accountIndex: 1, price: "90.0300", amount: 1},
-                  {accountIndex: 2, price: "90.0400", amount: 1},
-                  {accountIndex: 1, price: "90.0500", amount: 1},
-                  {accountIndex: 2, price: "90.0600", amount: 1},
-                  {accountIndex: 1, price: "90.0700", amount: 1},
-                  {accountIndex: 2, price: "90.0800", amount: 1},
-                  {accountIndex: 1, price: "90.0900", amount: 1},
-                  {accountIndex: 2, price: "90.1000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.10000000", amount: 1},
+                  {accountIndex: 2, price: "90.20000000", amount: 1},
+                  {accountIndex: 1, price: "90.30000000", amount: 1},
+                  {accountIndex: 2, price: "90.40000000", amount: 1},
+                  {accountIndex: 1, price: "90.50000000", amount: 1},
+                  {accountIndex: 2, price: "90.60000000", amount: 1},
+                  {accountIndex: 1, price: "90.70000000", amount: 1},
+                  {accountIndex: 2, price: "90.80000000", amount: 1},
+                  {accountIndex: 1, price: "90.90000000", amount: 1},
+                  {accountIndex: 2, price: "91.00000000", amount: 1},
                 ],
                 actions: {
                   "1": {result: null},
@@ -523,8 +640,7 @@ const testCases = {
         ],
       } as Pattern3TestCase,
       maxBoardIndex: {
-        errorMessage:
-          "Returned error: VM Exception while processing transaction: revert too many bids -- Reason given: too many bids.",
+        errorMessage: "",
         users: [0, 1, 2],
         bondGroups: [
           {
@@ -550,17 +666,17 @@ const testCases = {
               {
                 priceType: "USD",
                 bids: [
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
                 ],
                 actions: {
                   "1": {result: null},
@@ -598,47 +714,219 @@ const testCases = {
               {
                 priceType: "USD",
                 bids: [
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
-                  {accountIndex: 2, price: "90.0000", amount: 1},
-                  {accountIndex: 1, price: "90.0000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
+                  {accountIndex: 2, price: "90.00000000", amount: 1},
+                  {accountIndex: 1, price: "90.00000000", amount: 1},
                 ],
                 actions: {
                   "1": {
                     result: {
-                      myLowestPrice: "90.0000",
+                      myLowestPrice: "90.00000000",
                       myWinBids: [
-                        {price: "90.0000", boardIndex: 0},
-                        {price: "90.0000", boardIndex: 2},
-                        {price: "90.0000", boardIndex: 4},
-                        {price: "90.0000", boardIndex: 6},
-                        {price: "90.0000", boardIndex: 8},
+                        {price: "90.00000000", boardIndex: 0},
+                        {price: "90.00000000", boardIndex: 2},
+                        {price: "90.00000000", boardIndex: 4},
+                        {price: "90.00000000", boardIndex: 6},
+                        {price: "90.00000000", boardIndex: 8},
                       ],
                       // In the case of too many bids at the lowest winner price,
                       // the end board index may be less than expected.
                       // The max board index at the lowest winner price is 9 in this test,
                       // so this bid is not a winner bid.
-                      myLoseBids: [{price: "90.0000", boardIndex: 10}],
+                      myLoseBids: [{price: "90.00000000", boardIndex: 10}],
                     },
                   },
                   "2": {
                     result: {
                       myLowestPrice: "NO_LOWEST_LOSE_BID_PRICE",
                       myWinBids: [
-                        {price: "90.0000", boardIndex: 1},
-                        {price: "90.0000", boardIndex: 3},
-                        {price: "90.0000", boardIndex: 5},
-                        {price: "90.0000", boardIndex: 7},
-                        {price: "90.0000", boardIndex: 9},
+                        {price: "90.00000000", boardIndex: 1},
+                        {price: "90.00000000", boardIndex: 3},
+                        {price: "90.00000000", boardIndex: 5},
+                        {price: "90.00000000", boardIndex: 7},
+                        {price: "90.00000000", boardIndex: 9},
                       ],
                       myLoseBids: [],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      } as Pattern3TestCase,
+      manyPriceIndex: {
+        errorMessage: "",
+        users: [0, 1, 2],
+        bondGroups: [
+          {
+            solidStrikePrice: 100,
+            assets: {
+              "1": {
+                mintingBondAmount: 11.2,
+                lockingSBTAmount: 11.2,
+              },
+              "2": {
+                mintingBondAmount: 11.2,
+                lockingSBTAmount: 11.2,
+              },
+            },
+            auctions: [],
+          },
+          {
+            solidStrikePrice: 100,
+            assets: {
+              "0": {mintingBondAmount: 1, lockingSBTAmount: 1},
+            },
+            auctions: [
+              {
+                bids: [
+                  {
+                    accountIndex: 1,
+                    amount: 3.3,
+                    bidInfoList: Array.from({length: 33}, (_v, i) => ({
+                      price: 96.7 + 0.1 * i,
+                      amount: 0.1,
+                    })),
+                  },
+                  {
+                    accountIndex: 1,
+                    amount: 6.7,
+                    bidInfoList: Array.from({length: 67}, (_v, i) => ({
+                      price: 90 + 0.1 * i,
+                      amount: 0.1,
+                    })),
+                  },
+                  {
+                    accountIndex: 2,
+                    amount: 3.3,
+                    bidInfoList: Array.from({length: 33}, (_v, i) => ({
+                      price: 96.7 + 0.1 * i,
+                      amount: 0.1,
+                    })),
+                  },
+                  {
+                    accountIndex: 2,
+                    amount: 6.7,
+                    bidInfoList: Array.from({length: 67}, (_v, i) => ({
+                      price: 90 + 0.1 * i,
+                      amount: 0.1,
+                    })),
+                  },
+                ],
+                actions: {
+                  "1": {
+                    result: {
+                      myLowestPrice: "99.00000000",
+                      myLoseBids: Array.from({length: 95}, (_v, i) => ({
+                        price: 90 + 0.1 * i,
+                        boardIndex: 0,
+                      })),
+                      myWinBids: [
+                        {price: "99.50000000", boardIndex: 0},
+                        {price: "99.60000000", boardIndex: 0},
+                        {price: "99.70000000", boardIndex: 0},
+                        {price: "99.80000000", boardIndex: 0},
+                        {price: "99.90000000", boardIndex: 0},
+                      ],
+                    },
+                  },
+                  "2": {
+                    result: {
+                      myLowestPrice: "99.00000000",
+                      myLoseBids: Array.from({length: 95}, (_v, i) => ({
+                        price: 90 + 0.1 * i,
+                        boardIndex: 1,
+                      })),
+                      myWinBids: [
+                        {price: "99.50000000", boardIndex: 1},
+                        {price: "99.60000000", boardIndex: 1},
+                        {price: "99.70000000", boardIndex: 1},
+                        {price: "99.80000000", boardIndex: 1},
+                        {price: "99.90000000", boardIndex: 1},
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      } as Pattern3TestCase,
+      manyBoardIndex: {
+        errorMessage: "",
+        users: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        bondGroups: [
+          {
+            solidStrikePrice: 100,
+            assets: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].reduce<{
+              [accountIndex: string]: {
+                mintingBondAmount: number;
+                lockingSBTAmount: number;
+              };
+            }>((acc, accountIndex) => {
+              acc[accountIndex.toString()] = {
+                mintingBondAmount: 11.2,
+                lockingSBTAmount: 11.2,
+              };
+              return acc;
+            }, {}),
+            auctions: [],
+          },
+          {
+            solidStrikePrice: 100,
+            assets: {
+              "0": {mintingBondAmount: 100, lockingSBTAmount: 99.9},
+            },
+            auctions: [
+              {
+                bids: Array.from({length: 20}, (_v, i) => ({
+                  accountIndex: Math.floor(i / 2),
+                  amount: 5,
+                  bidInfoList: Array.from({length: 50}, (_v) => ({
+                    price: 95,
+                    amount: 0.1,
+                  })),
+                })),
+                actions: {
+                  ...[0, 1, 2, 3, 4, 5, 6, 7, 8].reduce<{
+                    [accountIndex: string]: {
+                      result: any;
+                    };
+                  }>((acc, accountIndex) => {
+                    acc[accountIndex.toString()] = {
+                      result: {
+                        myLowestPrice: "NO_LOWEST_LOSE_BID_PRICE",
+                        myWinBids: Array.from({length: 100}, (_v, i) => ({
+                          price: 95,
+                          boardIndex: accountIndex * 100 + i,
+                        })),
+                        myLoseBids: [],
+                      },
+                    };
+                    return acc;
+                  }, {}),
+                  "9": {
+                    result: {
+                      myLowestPrice: "NO_LOWEST_LOSE_BID_PRICE",
+                      myWinBids: Array.from({length: 49}, (_v, i) => ({
+                        price: 95,
+                        boardIndex: 900 + i,
+                      })),
+                      myLoseBids: [
+                        {
+                          price: 95,
+                          boardIndex: 949,
+                        },
+                      ],
                     },
                   },
                 },

@@ -14,9 +14,13 @@ import {
   emergencyAuctionRevealSpan,
   auctionWithdrawSpan,
   emergencyAuctionWithdrawSpan,
+  mintIDOLAmountBorder,
+  maturityScale,
   maxPriceIndex as defaultMaxPriceIndex,
   maxBoardIndex as defaultMaxBoardIndex,
   maxBoardIndexAtEndPrice as defaultMaxBoardIndexAtEndPrice,
+  maxBidCountPerAddress,
+  minTargetSBTAmount,
 } from "./constants";
 import BigNumber from "bignumber.js";
 
@@ -80,22 +84,24 @@ export async function init<
   const bondMakerContract = await BondMaker.new(
     oracleContract.address,
     lienTokenContract.address,
-    bondTokenNameContract.address
+    bondTokenNameContract.address,
+    maturityScale
   );
   const idolContract = await StableCoin.new(
     oracleContract.address,
     bondMakerContract.address,
     auctionSpan,
-    emergencyAuctionSpan
+    emergencyAuctionSpan,
+    mintIDOLAmountBorder
   );
-  const maxBidCountPerAddress = 100;
   const auctionBoardContract = await AuctionBoard.new(
     bondMakerContract.address,
     idolContract.address,
     maxPriceIndex.toString(10),
     maxBoardIndex.toString(10),
     maxBoardIndexAtEndPrice.toString(10),
-    maxBidCountPerAddress
+    maxBidCountPerAddress,
+    minTargetSBTAmount
   );
   const auctionContract = await Auction.new(
     bondMakerContract.address,

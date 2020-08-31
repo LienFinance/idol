@@ -7,6 +7,31 @@ const LogAuctionInfoDiff = "LogAuctionInfoDiff";
 const LogAuctionResult = "LogAuctionResult";
 const LogCloseAuction = "LogCloseAuction";
 
+export enum AuctionTimeFlag {
+  BEFORE_AUCTION = 0,
+  ACCEPTING_BIDS_PERIOD = 1,
+  REVEAL_BIDS_PERIOD = 2,
+  RECEIVING_SBT_PERIOD = 3,
+  AFTER_AUCTION_PERIOD = 4,
+}
+
+export function getTimeFlagName(flag: AuctionTimeFlag) {
+  switch (Number(flag)) {
+    case 0:
+      return "BEFORE_AUCTION";
+    case 1:
+      return "ACCEPTING_BIDS_PERIOD";
+    case 2:
+      return "REVEAL_BIDS_PERIOD";
+    case 3:
+      return "RECEIVING_SBT_PERIOD";
+    case 4:
+      return "AFTER_AUCTION_PERIOD";
+    default:
+      return "INVALID_TIME_CONTROL_FLAG";
+  }
+}
+
 export interface LogAuctionInfoDiffType extends Truffle.TransactionLog {
   event: typeof LogAuctionInfoDiff;
   args: {
@@ -47,6 +72,14 @@ function isLogAuctionResultType(log: any): log is LogAuctionResultType {
 
 function isLogCloseAuctionType(log: any): log is LogCloseAuctionType {
   return log.event === LogCloseAuction;
+}
+
+export async function callGetTimeFlag(
+  auctionContract: AuctionInstance,
+  ...params: Parameters<typeof auctionContract.getTimeControlFlag>
+) {
+  const res = await auctionContract.getTimeControlFlag(...params);
+  return getTimeFlagName(Number(res.toString()));
 }
 
 export async function callMakeEndInfo(

@@ -1,7 +1,19 @@
-import {BigNumber} from "bignumber.js";
+import BigNumber from "bignumber.js";
 
-import {Pattern3TestCase, convertToAuctionInfoIDOL} from "./utils";
-import {getBidStatus} from "./generateRandomCase";
+import {
+  Pattern3TestCase,
+  convertToAuctionInfoIDOL,
+  splitBids,
+  getBidPriceLimit,
+  NO_LOWEST_LOSE_BID_PRICE,
+  GIVE_UP_TO_MAKE_AUCTION_RESULT,
+} from "./utils";
+import {
+  getBidStatus,
+  getWinAmount,
+  getBoard,
+  discretizeBidPrice,
+} from "./generateRandomCase";
 import {
   nullAddress,
   advanceTime,
@@ -31,9 +43,6 @@ import {
   emergencyAuctionRevealSpan,
   auctionWithdrawSpan,
   emergencyAuctionWithdrawSpan,
-  maxPriceIndex,
-  maxBoardIndex,
-  maxBoardIndexAtEndPrice,
 } from "../../constants";
 import {
   callRegisterNewBondGroup,
@@ -43,6 +52,7 @@ import {
   callCloseAuction,
   callMakeAuctionResult,
   callMakeEndInfo,
+  callGetTimeFlag,
 } from "../../auction/callFunction";
 import {callRevealBids} from "../../auctionBoard/callFunction";
 import {callIssueLBTAndIDOL} from "../../wrapper/callFunction";
@@ -55,11 +65,11 @@ BigNumber.set({ROUNDING_MODE: BigNumber.ROUND_DOWN});
 const LOCK_POOL_BORDER = 0.1;
 
 const TestOracle = artifacts.require("TestOracle");
-const StableCoin = artifacts.require("TestStableCoin");
-const BondMaker = artifacts.require("TestBondMaker");
-const Auction = artifacts.require("TestAuction");
-const AuctionBoard = artifacts.require("TestAuctionBoard");
-const BondToken = artifacts.require("TestBondToken");
+const StableCoin = artifacts.require("StableCoin");
+const BondMaker = artifacts.require("BondMaker");
+const Auction = artifacts.require("Auction");
+const AuctionBoard = artifacts.require("AuctionBoard");
+const BondToken = artifacts.require("BondToken");
 const LienToken = artifacts.require("TestLienToken");
 const Wrapper = artifacts.require("Wrapper");
 
@@ -133,20 +143,37 @@ export const testPattern3Factory = (
         };
       } = {};
 
-      logger.log(await balanceLogger(`BondGroup${bondGroupIndex}`, bondIDs));
+      logger.log(`## BondGroup${bondGroupIndex}\n`);
 
       const lambdaBeforeUpdate = lambdaSimulator.calcUSD2IDOL(1);
       const bondGroup = (() => {
         const bondGroup = bondGroups[bondGroupIndex];
         const auctions = bondGroup.auctions as typeof bondGroups[number]["auctions"][number][];
+        const strikePriceIDOL = lambdaSimulator.calcUSD2IDOL(
+          bondGroup.solidStrikePrice
+        );
         return {
           ...bondGroup,
-          auctions: auctions.map((auctionInfo) => {
+          auctions: auctions.map((auctionInfo, auctionRestartedCount) => {
+            const {upperBidPriceLimit, lowerBidPriceLimit} = getBidPriceLimit(
+              strikePriceIDOL,
+              auctionRestartedCount
+            );
             if (auctionInfo.priceType !== "USD") {
-              return convertToAuctionInfoIDOL(auctionInfo, 1);
+              return convertToAuctionInfoIDOL(
+                auctionInfo,
+                upperBidPriceLimit,
+                lowerBidPriceLimit,
+                1
+              );
             }
 
-            return convertToAuctionInfoIDOL(auctionInfo, lambdaBeforeUpdate);
+            return convertToAuctionInfoIDOL(
+              auctionInfo,
+              upperBidPriceLimit,
+              lowerBidPriceLimit,
+              lambdaBeforeUpdate
+            );
           }),
         };
       })();
@@ -162,14 +189,12 @@ export const testPattern3Factory = (
       const now = await getBlockTimestampSec();
       let maturity: number;
       {
-        const {
-          rateETH2USD,
-          volatility,
-          untilMaturity,
-        } = etherStatus?.beforeRegisteringBonds || {
-          rateETH2USD: 200,
-          volatility: 0,
-          untilMaturity: auctionSpan + days,
+        const beforeRegisteringBonds = etherStatus?.beforeRegisteringBonds;
+        const {rateETH2USD, volatility, untilMaturity} = {
+          rateETH2USD: beforeRegisteringBonds?.rateETH2USD ?? 200,
+          volatility: beforeRegisteringBonds?.volatility ?? 0,
+          untilMaturity:
+            beforeRegisteringBonds?.untilMaturity ?? auctionSpan + days,
         };
 
         maturity = now + untilMaturity;
@@ -276,88 +301,100 @@ export const testPattern3Factory = (
           return [toEtherAmount(balance), toIDOLAmount(balance2)];
         });
 
-        const balanceDiff = await getBalanceDiff(async () => {
-          let poolID: string;
-          // Each account issues iDOL by locking SBT.
-          if (useWrapper) {
-            await bondMakerContract.issueNewBonds(bondGroupID, {
-              from: accounts[accountIndex],
-              value: fromEtherAmount(
-                mintAmount.minus(lockAmount).times(1002).div(1000)
-              ),
-            });
-            const wrapperContract = await Wrapper.at(contractAddresses.wrapper);
-            const {poolID: actualPoolID} = await callIssueLBTAndIDOL(
-              wrapperContract,
-              bondGroupID,
-              {
+        let balanceDiff: BigNumber[];
+        try {
+          balanceDiff = await getBalanceDiff(async () => {
+            let poolID: string;
+            // Each account issues iDOL by locking SBT.
+            if (useWrapper) {
+              await bondMakerContract.issueNewBonds(bondGroupID, {
                 from: accounts[accountIndex],
-                value: fromEtherAmount(lockAmount.times(1002).div(1000)),
-              }
-            );
-            poolID = actualPoolID;
-          } else {
-            await bondMakerContract.issueNewBonds(bondGroupID, {
-              from: accounts[accountIndex],
-              value: fromEtherAmount(mintAmount.times(1002).div(1000)),
-            });
-            await solidBondContract.increaseAllowance(
-              contractAddresses.idol,
-              fromBTAmount(lockAmount),
-              {
+                value: fromEtherAmount(
+                  mintAmount.minus(lockAmount).times(1002).div(1000)
+                ),
+              });
+              const wrapperContract = await Wrapper.at(
+                contractAddresses.wrapper
+              );
+              const {poolID: actualPoolID} = await callIssueLBTAndIDOL(
+                wrapperContract,
+                bondGroupID,
+                {
+                  from: accounts[accountIndex],
+                  value: fromEtherAmount(lockAmount.times(1002).div(1000)),
+                }
+              );
+              poolID = actualPoolID;
+            } else {
+              await bondMakerContract.issueNewBonds(bondGroupID, {
                 from: accounts[accountIndex],
-              }
+                value: fromEtherAmount(mintAmount.times(1002).div(1000)),
+              });
+              await solidBondContract.increaseAllowance(
+                contractAddresses.idol,
+                fromBTAmount(lockAmount),
+                {
+                  from: accounts[accountIndex],
+                }
+              );
+              const {poolID: actualPoolID} = await callMintIDOL(
+                IDOLContract,
+                solidBondID,
+                accounts[accountIndex],
+                fromBTAmount(lockAmount),
+                {
+                  from: accounts[accountIndex],
+                }
+              );
+              poolID = actualPoolID;
+            }
+
+            if (burningIDOLValue !== undefined) {
+              await IDOLContract.unlockSBT(
+                solidBondID,
+                fromIDOLAmount(burningIDOLAmount),
+                {
+                  from: accounts[accountIndex],
+                }
+              );
+            }
+
+            if (!Object.keys(pooledAmountList).includes(accountIndex)) {
+              pooledAmountList[accountIndex] = {};
+            }
+
+            if (!Object.keys(pooledAmountList[accountIndex]).includes(poolID)) {
+              pooledAmountList[accountIndex][poolID] = {
+                pooledIDOLAmount: new BigNumber(0),
+                obtainedIDOLAmount: new BigNumber(0),
+                lockedSBTAmount: new BigNumber(0),
+                burningIDOLAmount: new BigNumber(0),
+              };
+            }
+
+            const pooledAmount = pooledAmountList[accountIndex][poolID];
+            pooledAmount.pooledIDOLAmount = pooledAmount.pooledIDOLAmount.plus(
+              expectedPooledAmount
             );
-            const {poolID: actualPoolID} = await callMintIDOL(
-              IDOLContract,
-              solidBondID,
-              accounts[accountIndex],
-              fromBTAmount(lockAmount),
-              {
-                from: accounts[accountIndex],
-              }
+            pooledAmount.obtainedIDOLAmount = pooledAmount.obtainedIDOLAmount.plus(
+              expectedObtainedAmount
             );
-            poolID = actualPoolID;
-          }
-
-          if (burningIDOLValue !== undefined) {
-            await IDOLContract.unlockSBT(
-              solidBondID,
-              fromIDOLAmount(burningIDOLAmount),
-              {
-                from: accounts[accountIndex],
-              }
+            pooledAmount.lockedSBTAmount = pooledAmount.lockedSBTAmount.plus(
+              new BigNumber(lockingSBTAmount).dp(8)
             );
-          }
-
-          if (!Object.keys(pooledAmountList).includes(accountIndex)) {
-            pooledAmountList[accountIndex] = {};
-          }
-
-          if (!Object.keys(pooledAmountList[accountIndex]).includes(poolID)) {
-            pooledAmountList[accountIndex][poolID] = {
-              pooledIDOLAmount: new BigNumber(0),
-              obtainedIDOLAmount: new BigNumber(0),
-              lockedSBTAmount: new BigNumber(0),
-              burningIDOLAmount: new BigNumber(0),
-            };
-          }
-
-          const pooledAmount = pooledAmountList[accountIndex][poolID];
-          pooledAmount.pooledIDOLAmount = pooledAmount.pooledIDOLAmount.plus(
-            expectedPooledAmount
+            pooledAmount.burningIDOLAmount = pooledAmount.burningIDOLAmount.plus(
+              new BigNumber(burningIDOLAmount || 0).dp(8)
+            );
+            pooledAmountList[accountIndex][poolID] = pooledAmount;
+          });
+        } catch (err) {
+          assert.equal(
+            err.message,
+            errorMessage,
+            "fail to execute mint (iDOL)"
           );
-          pooledAmount.obtainedIDOLAmount = pooledAmount.obtainedIDOLAmount.plus(
-            expectedObtainedAmount
-          );
-          pooledAmount.lockedSBTAmount = pooledAmount.lockedSBTAmount.plus(
-            new BigNumber(lockingSBTAmount).dp(8)
-          );
-          pooledAmount.burningIDOLAmount = pooledAmount.burningIDOLAmount.plus(
-            new BigNumber(burningIDOLAmount || 0).dp(8)
-          );
-          pooledAmountList[accountIndex][poolID] = pooledAmount;
-        });
+          return;
+        }
 
         assert.equal(
           balanceDiff[0].toString(10),
@@ -372,7 +409,10 @@ export const testPattern3Factory = (
         );
       }
 
-      logger.log(await balanceLogger(`after mint (iDOL)`, bondIDs));
+      console.log(`after mint (iDOL)`);
+
+      console.log(`\n## BondGroup${bondGroupIndex} Trigger0\n`);
+      logger.log(`### BondGroup${bondGroupIndex} Trigger0\n`);
 
       let isLast = false;
 
@@ -412,7 +452,7 @@ export const testPattern3Factory = (
         );
 
         if (isInEmergency) {
-          console.log("The SBT is in emergency.");
+          logger.log("The SBT is in emergency.");
           try {
             const poolID = await IDOLContract.getCurrentPoolID(solidBondID);
             const poolInfo = await IDOLContract.getPoolInfo(poolID);
@@ -436,7 +476,7 @@ export const testPattern3Factory = (
             await mineOneBlock();
           }
 
-          console.log("The SBT is in the auction span.");
+          logger.log("The SBT is in the auction span.");
           try {
             const poolID = await IDOLContract.getCurrentPoolID(solidBondID);
             const poolInfo = await IDOLContract.getPoolInfo(poolID);
@@ -456,10 +496,8 @@ export const testPattern3Factory = (
         }
       }
 
-      // const solidPoolID = await IDOLContract.getCurrentPoolID(solidBondID);
-      const isInvalidMyLowestPriceList: {
-        [accountIndex: string]: true | undefined;
-      } = {};
+      let isInvalidMyLowestPriceFlag = false;
+      let boardSizeLimitFlag = false;
       for (
         let auctionIndex = 0;
         auctionIndex < auctions.length;
@@ -469,10 +507,7 @@ export const testPattern3Factory = (
           `\n## BondGroup${bondGroupIndex} Trigger0 Auction${auctionIndex}\n`
         );
         logger.log(
-          await balanceLogger(
-            `BondGroup${bondGroupIndex} Trigger0 Auction${auctionIndex}`,
-            bondIDs
-          )
+          `#### BondGroup${bondGroupIndex} Trigger0 Auction${auctionIndex}\n`
         );
 
         if (
@@ -480,7 +515,7 @@ export const testPattern3Factory = (
           errorMessage ===
             "there is no auction amount, but the bids of auction is given"
         ) {
-          console.log(
+          logger.log(
             "expected error:",
             "there is no auction amount, but the bids of auction is given"
           );
@@ -492,7 +527,15 @@ export const testPattern3Factory = (
         );
 
         console.log("\n## after startAuction\n");
-        const {bids, actions} = auctions[auctionIndex];
+        const {
+          bids,
+          actions,
+          giveUpSortBidPrice,
+          giveUpMakeEndInfo,
+          isReceivingWinBidsLately,
+        } = {
+          ...auctions[auctionIndex],
+        };
         const auctionID = await auctionContract.getCurrentAuctionID(
           solidBondID
         );
@@ -500,23 +543,18 @@ export const testPattern3Factory = (
         const isEmergency = await auctionContract.isAuctionEmergency(auctionID);
         console.log("isEmergency:", isEmergency);
 
-        {
-          const ongoingSBTAmount = await auctionContract.ongoingAuctionSBTTotal(
-            auctionID
-          );
-          console.log(
-            "ongoingAuctionSBTTotal:",
-            toBTAmount(ongoingSBTAmount).toString(10)
-          );
-          // const closingTime = await auctionContract.auctionClosingTime(auctionID);
-          // const now = await getBlockTimestampSec();
-          // console.log('closing time:', closingTime.toString(), now);
-          // console.log(
-          //     'time control flag:',
-          //     (await auctionContract.getTimeControlFlag(auctionID)).toString()
-          // );
-          // console.log(await auctionFlag(auctionContract, auctionID));
-        }
+        const ongoingSBTAmount = toBTAmount(
+          await auctionContract.ongoingAuctionSBTTotal(auctionID)
+        );
+        console.log("ongoingAuctionSBTTotal:", ongoingSBTAmount.toString(10));
+        // const closingTime = await auctionContract.auctionClosingTime(auctionID);
+        // const now = await getBlockTimestampSec();
+        // console.log('closing time:', closingTime.toString(), now);
+        // console.log(
+        //     'time control flag:',
+        //     (await auctionContract.getTimeControlFlag(auctionID)).toString()
+        // );
+        // console.log(await auctionFlag(auctionContract, auctionID));
 
         const secrets: {
           [secret: string]: {
@@ -525,6 +563,7 @@ export const testPattern3Factory = (
             bids: string[];
             random: string;
             unrevealed: boolean;
+            isDelegated: boolean;
           };
         } = {};
 
@@ -534,43 +573,90 @@ export const testPattern3Factory = (
           "strike price:",
           new BigNumber(solidStrikePrice).toFixed(4)
         );
-        for (const [
-          bidIndex,
-          {accountIndex, price, amount: SBTAmount, random, early, unrevealed},
-        ] of bids.entries()) {
-          // console.log(`(account ${accountIndex}) bid price:`, price.toString(10));
-          // assert.ok(
-          //     new BN(price).isLessThanOrEqualTo(solidStrikePrice),
-          //     'invalid test cases: bid price'
-          // );
+
+        {
+          const timeControlFlag = await callGetTimeFlag(
+            auctionContract,
+            auctionID
+          );
+          console.log(
+            "timeControlFlag",
+            timeControlFlag,
+            timeControlFlag === "ACCEPTING_BIDS_PERIOD"
+          );
+        }
+
+        const strikePriceIDOL = toIDOLAmount(
+          await IDOLContract.calcSBT2IDOL(
+            new BigNumber(solidStrikePrice).dp(4).shiftedBy(12).toString(10)
+          )
+        );
+        const {upperBidPriceLimit} = getBidPriceLimit(
+          strikePriceIDOL,
+          auctionIndex
+        );
+        async function bidWithMemo(
+          bid: {
+            accountIndex: number;
+            bidInfoList: string[];
+            totalTargetSBTAmount: BigNumber.Value;
+            random?: BigNumber.Value;
+            early?: boolean;
+            unrevealed?: boolean;
+            isDelegated?: boolean;
+          },
+          bidIndex: number
+        ) {
+          const {
+            accountIndex,
+            bidInfoList,
+            totalTargetSBTAmount,
+            random,
+            early,
+            unrevealed,
+            isDelegated,
+          } = bid;
           const secret = await auctionBoardContract.generateMultiSecret(
             auctionID,
-            [fromIDOLAmount(price), fromBTAmount(SBTAmount)],
+            bidInfoList,
             new BigNumber(random || bidIndex).dp(0).toString(10)
           );
 
-          const totalIDOLAmount = await IDOLContract.calcSBT2IDOL(
-            new BigNumber(solidStrikePrice)
-              .times(SBTAmount)
-              .shiftedBy(12)
-              .dp(0)
-              .toString(10)
+          const totalIDOLAmount = new BigNumber(upperBidPriceLimit).times(
+            totalTargetSBTAmount
           );
-          await IDOLContract.increaseAllowance(
+
+          await IDOLContract.approve(
             contractAddresses.auctionBoard,
-            totalIDOLAmount,
+            fromIDOLAmount(totalIDOLAmount.dp(8, BigNumber.ROUND_UP)),
             {
               from: accounts[accountIndex],
             }
           );
-          console.group(`(account ${accountIndex})`);
-          console.log(
-            "price (before discretized):",
-            new BigNumber(price).toFixed(4)
+          const allowance = await IDOLContract.allowance(
+            accounts[accountIndex],
+            contractAddresses.auctionBoard
           );
+          console.group(`(account ${accountIndex})`);
+          console.log("allowance", toIDOLAmount(allowance).toString());
           console.log(
             `target SBT amount:         `,
-            new BigNumber(SBTAmount).toFixed(8)
+            new BigNumber(totalTargetSBTAmount).toFixed(8)
+          );
+
+          const depositedIDOLAmount = await auctionBoardContract.bidWithMemo.call(
+            auctionID,
+            secret,
+            fromBTAmount(totalTargetSBTAmount),
+            encodeUtf8(""),
+            {
+              from: accounts[accountIndex],
+            }
+          );
+          console.log(
+            "totalIDOLAmount",
+            fromIDOLAmount(totalIDOLAmount.dp(8, BigNumber.ROUND_UP)),
+            depositedIDOLAmount.toString()
           );
 
           try {
@@ -582,7 +668,7 @@ export const testPattern3Factory = (
             const res = await auctionBoardContract.bidWithMemo(
               auctionID,
               secret,
-              fromBTAmount(SBTAmount),
+              fromBTAmount(totalTargetSBTAmount),
               encodeUtf8(memo),
               {
                 from: accounts[accountIndex],
@@ -598,11 +684,7 @@ export const testPattern3Factory = (
 
             console.log("gasUsed:", res.receipt.gasUsed);
           } catch (err) {
-            const output =
-              `fail to execute bid by\n` +
-              `   account ${accountIndex}\n` +
-              `   price ${price}\n` +
-              `   amount ${SBTAmount}\n`;
+            const output = `fail to execute bid`;
             assert.equal(err.message, errorMessage, output);
             return;
           } finally {
@@ -614,32 +696,104 @@ export const testPattern3Factory = (
               await callRevealBids(
                 auctionBoardContract,
                 auctionID,
-                [fromIDOLAmount(price), fromBTAmount(SBTAmount)],
+                bidInfoList,
                 new BigNumber(random || bidIndex).dp(0).toString(10),
                 {
                   from: accounts[0],
                 }
               );
             } catch (err) {
-              assert.equal(
-                err.message,
-                errorMessage,
-                "fail to execute revealBids"
-              );
-              return;
+              if (
+                err.message ===
+                "Returned error: VM Exception while processing transaction: revert the total SBT amount info needs to be the same with that of secret. -- Reason given: the total SBT amount info needs to be the same with that of secret.."
+              ) {
+                console.warn(
+                  "expected error: fail to reveal bids because of invalid total target SBT amount"
+                );
+                secrets[secret] = {
+                  accountIndex: accountIndex,
+                  auctionID,
+                  bids: bidInfoList,
+                  random: new BigNumber(random || bidIndex).dp(0).toString(10),
+                  unrevealed: unrevealed === true,
+                  isDelegated: isDelegated === true,
+                };
+                return;
+              }
+
+              throw err;
             }
           } else {
             secrets[secret] = {
               accountIndex: accountIndex,
               auctionID,
-              bids: [fromIDOLAmount(price), fromBTAmount(SBTAmount)],
+              bids: bidInfoList,
               random: new BigNumber(random || bidIndex).dp(0).toString(10),
               unrevealed: unrevealed === true,
+              isDelegated: isDelegated === true,
             };
           }
         }
 
-        logger.log(await balanceLogger(`after bid`, bondIDs));
+        for (const [
+          bidIndex,
+          {
+            accountIndex,
+            bidInfoList,
+            price,
+            amount: totalTargetSBTAmount,
+            random,
+            early,
+            unrevealed,
+            isDelegated,
+          },
+        ] of bids.entries()) {
+          if (price !== undefined) {
+            await bidWithMemo(
+              {
+                accountIndex,
+                bidInfoList: [
+                  fromIDOLAmount(price),
+                  fromBTAmount(totalTargetSBTAmount),
+                ],
+                totalTargetSBTAmount,
+                random,
+                early,
+                unrevealed,
+                isDelegated,
+              },
+              bidIndex
+            );
+          } else if (bidInfoList !== undefined) {
+            // const totalTargetSBTAmount = bidInfoList.reduce(
+            //     (acc, { amount }) => acc.plus(amount),
+            //     new BigNumber(0)
+            // );
+            await bidWithMemo(
+              {
+                accountIndex,
+                bidInfoList: bidInfoList.reduce(
+                  (acc, {price, amount}) => [
+                    ...acc,
+                    fromIDOLAmount(price),
+                    fromBTAmount(amount),
+                  ],
+                  new Array<string>()
+                ),
+                totalTargetSBTAmount,
+                random,
+                early,
+                unrevealed,
+                isDelegated,
+              },
+              bidIndex
+            );
+          } else {
+            throw new Error("the bids format is invalid");
+          }
+        }
+
+        logger.log(`after bid`);
         // }
 
         // Advance time until each account can reveal own bids.
@@ -658,30 +812,61 @@ export const testPattern3Factory = (
 
         // Each account reveal own bids.
         console.log("\n## exec revealBid\n");
+        {
+          const timeControlFlag = await callGetTimeFlag(
+            auctionContract,
+            auctionID
+          );
+          console.log(
+            "timeControlFlag",
+            timeControlFlag,
+            timeControlFlag === "REVEAL_BIDS_PERIOD"
+          );
+        }
+
         for (const [
           secret,
-          {accountIndex, bids, random, unrevealed},
+          {accountIndex, bids, random, unrevealed, isDelegated},
         ] of Object.entries(secrets)) {
           // console.log(`account ${accountIndex}: ${accounts[accountIndex]}`);
           if (unrevealed) {
             continue;
           }
 
-          let bidIndex: {
+          let revealedBids: {
             bidPrice: string;
             boardIndex: number;
-          };
+          }[];
           try {
-            bidIndex = await callRevealBids(
+            revealedBids = await callRevealBids(
               auctionBoardContract,
               auctionID,
               bids,
               random,
               {
-                from: accounts[accountIndex],
+                from: isDelegated ? accounts[0] : accounts[accountIndex],
               }
             );
           } catch (err) {
+            if (
+              err.message ===
+              "Returned error: VM Exception while processing transaction: revert the total SBT amount info needs to be the same with that of secret. -- Reason given: the total SBT amount info needs to be the same with that of secret.."
+            ) {
+              console.warn(
+                "expected error: fail to reveal bids because of invalid total target SBT amount"
+              );
+              continue;
+            }
+
+            if (
+              err.message ===
+              "Returned error: VM Exception while processing transaction: revert too many bids -- Reason given: too many bids."
+            ) {
+              console.log("expected error:", err.message);
+              boardSizeLimitFlag = true;
+              continue;
+            }
+
             assert.equal(
               err.message,
               errorMessage,
@@ -693,16 +878,10 @@ export const testPattern3Factory = (
           delete secrets[secret];
 
           console.group(`(account ${accountIndex})`);
-          console.log("bidIndex:", bidIndex);
+          console.log("revealedBids:", revealedBids);
           console.groupEnd();
-
-          assert.equal(
-            bidIndex.bidPrice,
-            bids[0],
-            "the bid price is differ from the input price"
-          );
         }
-        logger.log(await balanceLogger(`after revealBid`, bondIDs));
+        logger.log(`after revealBid`);
 
         if (isEmergency) {
           await advanceTime(emergencyAuctionRevealSpan);
@@ -736,9 +915,26 @@ export const testPattern3Factory = (
           console.groupEnd();
         }
 
-        await auctionBoardContract.sortBidPrice(auctionID, sortedPrice, {
-          from: accounts[0],
-        });
+        if (giveUpSortBidPrice) {
+          if (isEmergency) {
+            await advanceTime(emergencyAuctionWithdrawSpan);
+          } else {
+            await advanceTime(auctionWithdrawSpan);
+          }
+          await mineOneBlock();
+        }
+
+        console.log("sort bid price");
+        {
+          const res = await auctionBoardContract.sortBidPrice(
+            auctionID,
+            sortedPrice,
+            {
+              from: accounts[0],
+            }
+          );
+          console.log("gasUsed:", res.receipt.gasUsed);
+        }
 
         {
           const {
@@ -781,24 +977,7 @@ export const testPattern3Factory = (
             "lowest bid price",
             toIDOLAmount(lowestBidPriceDeadLine).toFixed(8)
           );
-        }
 
-        // Decide auction winners by endAuction.
-
-        {
-          console.log("\n## exec makeEndInfo\n");
-          logger.log("\n## exec makeEndInfo\n");
-          const {settledAmount, paidIDOL, rewardedSBT} = await callMakeEndInfo(
-            auctionBoardContract,
-            auctionID
-          );
-          logger.log("auction info diff:");
-          logger.log("    settledAmount:", settledAmount);
-          logger.log("    paidIDOL:     ", paidIDOL);
-          logger.log("    rewardedSBT:  ", rewardedSBT);
-        }
-
-        {
           const sortedBidPrice = await auctionBoardContract.getSortedBidPrice(
             auctionID
           );
@@ -815,6 +994,61 @@ export const testPattern3Factory = (
             return [...acc, {price, totalSBTAmount}];
           }, new Array<{price: string; totalSBTAmount: string}>());
           logger.log("bid stats:", bidStats);
+        }
+
+        // Decide auction winners by endAuction.
+
+        if (!giveUpSortBidPrice && giveUpMakeEndInfo) {
+          if (isEmergency) {
+            await advanceTime(emergencyAuctionWithdrawSpan);
+          } else {
+            await advanceTime(auctionWithdrawSpan);
+          }
+          await mineOneBlock();
+        }
+
+        {
+          console.log("\n## exec makeEndInfo\n");
+          logger.log("\nexec makeEndInfo\n");
+          const timeControlFlag = await callGetTimeFlag(
+            auctionContract,
+            auctionID
+          );
+          console.log(
+            "timeControlFlag",
+            timeControlFlag,
+            timeControlFlag === "RECEIVING_SBT_PERIOD"
+          );
+          const {settledAmount, paidIDOL, rewardedSBT} = await callMakeEndInfo(
+            auctionBoardContract,
+            auctionID
+          );
+          logger.log("auction info diff:");
+          logger.log("    settledAmount:", settledAmount.toString());
+          logger.log("    paidIDOL:     ", paidIDOL.toString());
+          logger.log("    rewardedSBT:  ", rewardedSBT.toString());
+        }
+
+        {
+          const auctionDisposalInfo = await auctionBoardContract.auctionDisposalInfo(
+            auctionID
+          );
+          const strikePriceIDOLForUnrevealed = toIDOLAmount(
+            auctionDisposalInfo[0]
+          );
+          const strikePriceIDOLForRestWinners = toIDOLAmount(
+            auctionDisposalInfo[1]
+          );
+          const isEndInfoCreated = auctionDisposalInfo[2];
+          logger.log(
+            "strikePriceIDOLForUnrevealed:",
+            strikePriceIDOLForUnrevealed.toFixed(8)
+          );
+          logger.log(
+            "strikePriceIDOLForRestWinners:",
+            strikePriceIDOLForRestWinners.toFixed(8)
+          );
+          logger.log("isEndInfoCreated:", isEndInfoCreated);
 
           let endPrice: BigNumber;
           let endBoardIndex: number;
@@ -864,21 +1098,17 @@ export const testPattern3Factory = (
               price: BigNumber.Value;
               boardIndex: number;
             }>();
-            for (const {
-              accountIndex: bidder,
-              price,
-              early,
-              unrevealed,
-            } of bids) {
+
+            const bidsSplit = splitBids(bids);
+            for (const {accountIndex: bidder, price, early, unrevealed} of [
+              ...bidsSplit.filter(({early}) => early === true),
+              ...bidsSplit.filter(({early}) => early !== true),
+            ]) {
               if (unrevealed) {
                 continue;
               }
-
-              const strikePriceIDOL = await IDOLContract.calcSBT2IDOL(
-                fromBTValue(solidStrikePrice)
-              );
               const bidPrice = early
-                ? toIDOLAmount(strikePriceIDOL)
+                ? discretizeBidPrice(upperBidPriceLimit)
                 : new BigNumber(price);
               const oldBids = theoryBids[bidPrice.toString()] || [];
 
@@ -894,13 +1124,13 @@ export const testPattern3Factory = (
                   loseSBTAmount,
                   auctionEndPriceWinnerSBTAmount
                 );
-                if (isWinBid) {
+                if (isWinBid && !(giveUpSortBidPrice || giveUpMakeEndInfo)) {
                   actualMyWinBids.push({
                     price: bidPrice,
                     boardIndex: boardIndex,
                   });
                 }
-                if (isLoseBid) {
+                if (isLoseBid || giveUpSortBidPrice || giveUpMakeEndInfo) {
                   actualMyLoseBids.push({
                     price: bidPrice,
                     boardIndex: boardIndex,
@@ -977,7 +1207,7 @@ export const testPattern3Factory = (
           }
         }
 
-        logger.log(await balanceLogger(`before makeAuctionResult`, bondIDs));
+        logger.log(`before makeAuctionResult`);
 
         for (const [secret, {accountIndex, unrevealed}] of Object.entries(
           secrets
@@ -1018,7 +1248,7 @@ export const testPattern3Factory = (
         }
 
         // The winner of the auction gets the SBT he bought by calling the winBidReward function.
-        logger.log(`## calcBillAndCheckLoserBids\n`);
+        logger.log(`calcBillAndCheckLoserBids\n`);
         for (const [accountIndex, {result}] of Object.entries(actions)) {
           if (result === null) {
             continue;
@@ -1039,17 +1269,22 @@ export const testPattern3Factory = (
             );
 
             const expectedMyLowestPrice =
-              myLowestPrice === "NO_LOWEST_LOSE_BID_PRICE"
+              myLowestPrice === NO_LOWEST_LOSE_BID_PRICE
                 ? new BigNumber(2).pow(64).minus(1).toString(10)
+                : myLowestPrice === GIVE_UP_TO_MAKE_AUCTION_RESULT
+                ? new BigNumber(2).pow(64).minus(2).toString(10)
                 : fromIDOLAmount(myLowestPrice);
             logger.group("my lowest price:", actualMyLowestPrice.toString());
             logger.log("actual:", actualMyLowestPrice.toString());
             logger.log("input: ", expectedMyLowestPrice);
             logger.groupEnd();
             logger.groupEnd();
-            if (actualMyLowestPrice.toString() !== expectedMyLowestPrice) {
+            if (
+              actualMyLowestPrice.toString() !== expectedMyLowestPrice &&
+              myLowestPrice !== GIVE_UP_TO_MAKE_AUCTION_RESULT
+            ) {
               if (invalidMyLowestPrice) {
-                isInvalidMyLowestPriceList[accountIndex] = true;
+                isInvalidMyLowestPriceFlag = true;
               } else {
                 assert.fail(
                   `(account ${accountIndex}) ` +
@@ -1058,11 +1293,11 @@ export const testPattern3Factory = (
               }
             }
           } catch (err) {
-            assert.equal(
-              err.message,
-              errorMessage,
-              "fail to execute calcMyLowestPrice"
-            );
+            /* assert.equal(
+                            err.message,
+                            errorMessage,
+                            'fail to execute calcMyLowestPrice'
+                        ); */
           }
 
           try {
@@ -1070,7 +1305,11 @@ export const testPattern3Factory = (
               auctionID,
               accounts[accountIndex],
               fromBTAmount(winnerAmountMap.get(accountIndex) || 0),
-              myLowestPrice === "NO_LOWEST_LOSE_BID_PRICE"
+              giveUpSortBidPrice ||
+                giveUpMakeEndInfo ||
+                myLowestPrice === GIVE_UP_TO_MAKE_AUCTION_RESULT
+                ? new BigNumber(2).pow(64).minus(2).toString(10)
+                : myLowestPrice === NO_LOWEST_LOSE_BID_PRICE
                 ? new BigNumber(2).pow(64).minus(1).toString(10)
                 : fromIDOLAmount(myLowestPrice),
               fromBids(myLoseBids)
@@ -1096,14 +1335,61 @@ export const testPattern3Factory = (
           }
         }
 
-        logger.log("");
-        logger.log(
-          await balanceLogger(`after calcBillAndCheckLoserBids`, bondIDs)
-        );
+        logger.log(`after calcBillAndCheckLoserBids`);
 
-        console.log("\n## exec makeAuctionResult\n");
-        for (const [accountIndex, {result}] of Object.entries(actions)) {
-          try {
+        if (isReceivingWinBidsLately) {
+          if (isEmergency) {
+            await advanceTime(emergencyAuctionWithdrawSpan);
+          } else {
+            await advanceTime(auctionWithdrawSpan);
+          }
+          await mineOneBlock();
+
+          // console.log(await auctionContract.getTimeControlFlag(auctionID));
+          // console.log(await auctionFlag(auctionContract, auctionID));
+
+          logger.log(`before callCloseAuction`);
+
+          console.log("\n## exec callCloseAuction\n");
+          {
+            const timeControlFlag = await callGetTimeFlag(
+              auctionContract,
+              auctionID
+            );
+            console.log(
+              "timeControlFlag",
+              timeControlFlag,
+              timeControlFlag === "AFTER_AUCTION_PERIOD"
+            );
+
+            const {isLast: actualIsLast} = await callCloseAuction(
+              auctionContract,
+              auctionID
+            );
+            logger.log("isLast:", actualIsLast?.toString());
+            isLast = actualIsLast;
+          }
+
+          logger.log(await balanceLogger(`after callCloseAuction`, bondIDs));
+        }
+
+        async function makeAuctionResult(
+          actionEntries: [
+            string,
+            Pattern3TestCase["bondGroups"][number]["auctions"][number]["actions"][number]
+          ][]
+        ) {
+          const timeControlFlag = await callGetTimeFlag(
+            auctionContract,
+            auctionID
+          );
+          console.log(
+            "timeControlFlag",
+            timeControlFlag,
+            timeControlFlag === "AFTER_AUCTION_PERIOD"
+          );
+
+          for (const [accountIndex, {result}] of actionEntries) {
             if (result === null) {
               continue;
             }
@@ -1112,74 +1398,195 @@ export const testPattern3Factory = (
 
             console.log(`(account${accountIndex})`);
             logger.group(`(account${accountIndex})`);
-            const {
-              SBTAmountOfReward,
-              IDOLAmountOfPayment,
-              IDOLAmountOfChange,
-            } = await callMakeAuctionResult(
-              auctionContract,
-              auctionID,
-              myLowestPrice === "NO_LOWEST_LOSE_BID_PRICE"
-                ? new BigNumber(2).pow(64).minus(1).toString(10)
-                : fromIDOLAmount(myLowestPrice),
-              fromBids(myWinBids),
-              fromBids(myLoseBids),
-              {
-                from: accounts[accountIndex],
-              }
-            );
-            logger.log("   SBTAmountOfReward:  ", SBTAmountOfReward.toString());
-            logger.log(
-              "   IDOLAmountOfPayment:",
-              IDOLAmountOfPayment.toString()
-            );
-            logger.log(
-              "   IDOLAmountOfChange: ",
-              IDOLAmountOfChange.toString()
-            );
-            logger.groupEnd();
-          } catch (err) {
-            if (
-              err.message ===
-              "Returned error: VM Exception while processing transaction: revert This process is already done -- Reason given: This process is already done."
-            ) {
-              continue;
-            }
 
-            assert.equal(
-              err.message,
-              errorMessage,
-              `fail to execute makeAuctionResult`
-            );
-            return;
+            try {
+              const {
+                SBTAmountOfReward,
+                IDOLAmountOfPayment,
+                IDOLAmountOfChange,
+              } = await callMakeAuctionResult(
+                auctionContract,
+                auctionID,
+                myLowestPrice === GIVE_UP_TO_MAKE_AUCTION_RESULT
+                  ? new BigNumber(2).pow(64).minus(2).toString(10)
+                  : myLowestPrice === NO_LOWEST_LOSE_BID_PRICE
+                  ? new BigNumber(2).pow(64).minus(1).toString(10)
+                  : fromIDOLAmount(myLowestPrice),
+                fromBids(myWinBids),
+                fromBids(myLoseBids),
+                {
+                  from: accounts[accountIndex],
+                }
+              );
+
+              const {board, settledAmountForUnrevealed} = getBoard(
+                strikePriceIDOL,
+                splitBids(bids)
+              );
+              const expectedSBTAmountOfReward = getWinAmount(
+                ongoingSBTAmount.minus(settledAmountForUnrevealed),
+                board,
+                Number(accountIndex)
+              );
+
+              logger.group("SBTAmountOfReward:  ");
+              logger.log("expected:", expectedSBTAmountOfReward.toString());
+              logger.log(
+                "actual:  ",
+                toBTAmount(SBTAmountOfReward).toString(10)
+              );
+              logger.groupEnd();
+              logger.log(
+                "IDOLAmountOfPayment:",
+                IDOLAmountOfPayment.toString()
+              );
+              logger.log("IDOLAmountOfChange: ", IDOLAmountOfChange.toString());
+              logger.groupEnd();
+
+              if (!boardSizeLimitFlag) {
+                assert.ok(
+                  toBTAmount(SBTAmountOfReward).isEqualTo(
+                    expectedSBTAmountOfReward
+                  ),
+                  "rewarded SBT amount is differ from expected"
+                );
+              }
+            } catch (err) {
+              if (
+                err.message ===
+                "Returned error: VM Exception while processing transaction: revert This process is already done -- Reason given: This process is already done."
+              ) {
+                console.warn("ignored error:", err.message);
+                continue;
+              }
+
+              throw err;
+            }
           }
         }
 
-        logger.log(await balanceLogger(`after makeAuctionResult`, bondIDs));
-
-        if (isEmergency) {
-          await advanceTime(emergencyAuctionWithdrawSpan);
-        } else {
-          await advanceTime(auctionWithdrawSpan);
-        }
-        await mineOneBlock();
-
-        // console.log(await auctionContract.getTimeControlFlag(auctionID));
-        // console.log(await auctionFlag(auctionContract, auctionID));
-
-        logger.log(await balanceLogger(`before callCloseAuction`, bondIDs));
-
-        console.log("\n## exec callCloseAuction\n");
-        {
-          const {isLast: actualIsLast} = await callCloseAuction(
-            auctionContract,
-            auctionID
+        console.log("\n## exec makeAuctionResult\n");
+        try {
+          await makeAuctionResult(
+            Object.entries(actions).filter(
+              ([, {isMakingAuctionResultLately}]) =>
+                isMakingAuctionResultLately !== true
+            )
           );
-          logger.log("isLast:", actualIsLast?.toString());
-          isLast = actualIsLast;
+        } catch (err) {
+          assert.equal(
+            err.message,
+            errorMessage,
+            `fail to execute makeAuctionResult`
+          );
+          return;
         }
 
-        logger.log(await balanceLogger(`after callCloseAuction`, bondIDs));
+        if (!isReceivingWinBidsLately) {
+          if (isEmergency) {
+            await advanceTime(emergencyAuctionWithdrawSpan);
+          } else {
+            await advanceTime(auctionWithdrawSpan);
+          }
+          await mineOneBlock();
+        }
+
+        console.log("\n## exec makeAuctionResult lately\n");
+        try {
+          await makeAuctionResult(
+            Object.entries(actions).filter(
+              ([, {isMakingAuctionResultLately}]) =>
+                isMakingAuctionResultLately === true
+            )
+          );
+        } catch (err) {
+          assert.equal(
+            err.message,
+            errorMessage,
+            `fail to execute makeAuctionResult lately`
+          );
+          return;
+        }
+
+        logger.log(`after makeAuctionResult`);
+
+        if (!isReceivingWinBidsLately) {
+          if (isEmergency) {
+            await advanceTime(emergencyAuctionWithdrawSpan);
+          } else {
+            await advanceTime(auctionWithdrawSpan);
+          }
+          await mineOneBlock();
+
+          // console.log(await auctionContract.getTimeControlFlag(auctionID));
+          // console.log(await auctionFlag(auctionContract, auctionID));
+
+          logger.log(`before callCloseAuction`);
+
+          console.log("\n## exec callCloseAuction\n");
+          {
+            const timeControlFlag = await callGetTimeFlag(
+              auctionContract,
+              auctionID
+            );
+            console.log(
+              "timeControlFlag",
+              timeControlFlag,
+              timeControlFlag === "AFTER_AUCTION_PERIOD"
+            );
+
+            const {isLast: actualIsLast} = await callCloseAuction(
+              auctionContract,
+              auctionID
+            );
+            logger.log("isLast:", actualIsLast?.toString());
+            isLast = actualIsLast;
+
+            const {lowerBidPriceLimit} = getBidPriceLimit(
+              strikePriceIDOL,
+              auctionIndex
+            );
+            console.log("lowerBidPriceLimit", lowerBidPriceLimit);
+
+            const auctionTriggerCount = await IDOLContract.auctionTriggerCount(
+              solidBondID
+            );
+            const poolID = await IDOLContract.generatePoolID(
+              solidBondID,
+              auctionTriggerCount.toNumber() - 1
+            );
+
+            const logs = await IDOLContract.contract.getPastEvents(
+              "LogLambda",
+              {
+                filter: {poolID},
+              }
+            );
+            logs.map(({event, transactionHash, returnValues}) => {
+              const {
+                poolID,
+                settledAverageAuctionPrice,
+                // totalSupply,
+                // lockedSBTValue,
+              } = returnValues;
+              console.log("poolID", poolID);
+              console.log(
+                "actual settledAverageAuctionPrice",
+                toIDOLAmount(settledAverageAuctionPrice).toString(10)
+              );
+              if (isLast) {
+                assert.ok(
+                  toIDOLAmount(settledAverageAuctionPrice).gte(
+                    lowerBidPriceLimit
+                  ),
+                  "unexpected the average settled price"
+                );
+              }
+            });
+          }
+
+          logger.log(`after callCloseAuction`);
+        }
       }
 
       if (errorMessage === "isLast differ from expected") {
@@ -1188,17 +1595,22 @@ export const testPattern3Factory = (
       }
       assert.equal(isLast, expectedIsLast, "isLast differ from expected");
 
-      if (useWrapper) {
-        console.log("\n## returnLockedPoolUsers\n");
-        logger.log("## returnLockedPoolUsers\n");
-      } else {
-        console.log("\n## returnLockedPool\n");
-        logger.log("## returnLockedPool\n");
-      }
+      const checkTheoreticalValue = !boardSizeLimitFlag;
+
+      console.log("\n## returnLockedPool\n");
+      logger.log("returnLockedPool\n");
 
       const expectedSettledAveragePrice = totalUnlockedSBT.eq(0)
         ? new BigNumber(0)
         : totalBurnedIDOL.div(totalUnlockedSBT).dp(8);
+      logger.log(
+        "expectedTotalBurnedIDOL (iDOL):        ",
+        totalBurnedIDOL.toFixed(8)
+      );
+      logger.log(
+        "expectedTotalUnlockedSBT (SBT):        ",
+        totalUnlockedSBT.toFixed(8)
+      );
       logger.log(
         "expectedSettledAveragePrice (iDOL/SBT):",
         expectedSettledAveragePrice.toFixed(8)
@@ -1212,29 +1624,29 @@ export const testPattern3Factory = (
         const poolIDs = Object.keys(pooledAmountList[accountIndex] || {});
         console.log("poolIDs", poolIDs);
         for (const poolID of poolIDs) {
-          const actualSettledAveragePrice = await IDOLContract.getSettledAveragePrice(
-            poolID
+          const poolInfo = await IDOLContract.getPoolInfo(poolID);
+          const actualSoldSBTTotalInAuction = poolInfo[4];
+          const actualPaidIDOLTotalInAuction = poolInfo[5];
+          const actualSettledAveragePrice = poolInfo[6];
+          logger.log(`pool ID ${poolID.slice(0, 7)}...`);
+          logger.log(
+            "actualTotalBurnedIDOL (iDOL):        ",
+            toIDOLAmount(actualPaidIDOLTotalInAuction).toFixed(8)
           );
           logger.log(
-            `pool ID ${poolID.slice(0, 7)}...`,
+            "actualTotalUnlockedSBT (SBT):        ",
+            toBTAmount(actualSoldSBTTotalInAuction).toFixed(8)
+          );
+          logger.log(
             "actualSettledAveragePrice (iDOL/SBT):",
             toIDOLAmount(actualSettledAveragePrice).toFixed(8)
           );
         }
 
-        if (useWrapper) {
-          // In the case that you mint iDOL by wrapper contract methods such as issueLBTAndIDOL,
-          // because your locked amount is managed in the wrapper contract.
-          const res = await IDOLContract.returnLockedPool(poolIDs, {
-            from: accounts[accountIndex],
-          });
-          console.log("gasUsed:", res.receipt.gasUsed);
-        } else {
-          const res = await IDOLContract.returnLockedPool(poolIDs, {
-            from: accounts[accountIndex],
-          });
-          console.log("gasUsed:", res.receipt.gasUsed);
-        }
+        const res = await IDOLContract.returnLockedPool(poolIDs, {
+          from: accounts[accountIndex],
+        });
+        console.log("gasUsed:", res.receipt.gasUsed);
 
         const afterBalance = toIDOLAmount(
           await IDOLContract.balanceOf(accounts[accountIndex])
@@ -1280,37 +1692,46 @@ export const testPattern3Factory = (
         logger.groupEnd();
         logger.groupEnd();
 
-        if (Object.values(isInvalidMyLowestPriceList).some((v) => v)) {
-          logger.log(
-            `Someone inputted an invalid makeAuctionResult parameter.`,
-            "So the back iDOL amount may be less than expected."
-          );
-          assert.ok(
-            actualDiff.minus(totalBackAmount).lt(1e-5),
-            `(account ${accountIndex}) ` +
-              "the back amount is differ from expected (the detailed log is in the summary)"
-          );
-        } else {
-          assert.ok(
-            actualDiff.minus(totalBackAmount).abs().lt(1e-5),
-            `(account ${accountIndex}) ` +
-              "the back amount is differ from expected (the detailed log is in the summary)"
-          );
+        try {
+          if (isInvalidMyLowestPriceFlag) {
+            logger.log(
+              `Someone inputted an invalid makeAuctionResult parameter.`,
+              "So the back iDOL amount may be less than expected."
+            );
+            assert.ok(
+              actualDiff.minus(totalBackAmount).lt(1e-5),
+              `(account ${accountIndex}) ` +
+                "the back amount is differ from expected (the detailed log is in the summary)"
+            );
+          } else {
+            console.log("check theoretical price");
+            assert.ok(
+              actualDiff.minus(totalBackAmount).abs().lt(1e-5),
+              `(account ${accountIndex}) ` +
+                "the back amount is differ from expected (the detailed log is in the summary)"
+            );
+          }
+        } catch (err) {
+          if (!checkTheoreticalValue) {
+            console.warn("ignored error:", err.message);
+            continue;
+          }
+
+          throw err;
         }
       }
 
-      if (useWrapper) {
-        logger.log(await balanceLogger(`after returnLockedPoolUsers`, bondIDs));
-      } else {
-        logger.log(await balanceLogger(`after returnLockedPool`, bondIDs));
-      }
+      logger.log(`after returnLockedPool`);
 
       const totalIDOLSupply = await IDOLContract.totalSupply();
       const totalLockedSBTValue = await IDOLContract.solidValueTotal();
       const actualLambda = await IDOLContract.calcSBT2IDOL(10 ** 12);
+      const expectedTotalIDOLSupply = lambdaSimulator.totalIDOLSupply;
+      const expectedTotalLockedSBTValue = lambdaSimulator.totalLockedSBTValue;
       const expectedLambda = lambdaSimulator.calcUSD2IDOL(1);
+      logger.group("actual:");
       logger.log(
-        "total iDOL supply     (iDOL):",
+        "total iDOL supply (iDOL)    :",
         toIDOLAmount(totalIDOLSupply).toFixed(8)
       );
       logger.log(
@@ -1318,29 +1739,51 @@ export const testPattern3Factory = (
         toBTValue(totalLockedSBTValue).toFixed(12)
       );
       logger.log(
-        "lambda            (iDOL/USD):",
+        "lambda (iDOL/USD)           :",
         toIDOLAmount(actualLambda).toFixed(8)
       );
-      logger.log("expected lambda", expectedLambda.toString(10));
+      logger.groupEnd();
+      logger.group("expected:");
+      logger.log(
+        "total iDOL supply (iDOL)    :",
+        expectedTotalIDOLSupply.toFixed(8)
+      );
+      logger.log(
+        "total locked SBT value (USD):",
+        expectedTotalLockedSBTValue.toFixed(12)
+      );
+      logger.log("lambda (iDOL/USD)           :", expectedLambda.toString(10));
+      logger.groupEnd();
 
-      if (Object.values(isInvalidMyLowestPriceList).some((v) => v)) {
-        logger.log(
-          "Someone inputted an invalid makeAuctionResult parameter.",
-          "So the lambda value may be less than expected."
-        );
-        assert.ok(
-          toIDOLAmount(actualLambda).minus(expectedLambda).lt(1e-6),
-          `the lambda value differs from expected (the detailed log is in the summary)`
-        );
-        // Overwrite the actual lambda value.
-        lambdaSimulator.totalIDOLSupply = toIDOLAmount(totalIDOLSupply);
-        lambdaSimulator.totalLockedSBTValue = toBTValue(totalLockedSBTValue);
-      } else {
-        assert.ok(
-          toIDOLAmount(actualLambda).minus(expectedLambda).abs().lt(1e-6),
-          `the lambda value differs from expected (the detailed log is in the summary)`
-        );
+      try {
+        if (isInvalidMyLowestPriceFlag) {
+          logger.log(
+            "Someone inputted an invalid makeAuctionResult parameter.",
+            "So the lambda value may be less than expected."
+          );
+          assert.ok(
+            toIDOLAmount(actualLambda).minus(expectedLambda).lt(1e-6),
+            `the lambda value differs from expected (the detailed log is in the summary)`
+          );
+        } else {
+          console.log("check theoretical price");
+          assert.ok(
+            toIDOLAmount(actualLambda).minus(expectedLambda).abs().lt(1e-6),
+            `the lambda value differs from expected (the detailed log is in the summary)`
+          );
+        }
+      } catch (err) {
+        if (!checkTheoreticalValue) {
+          console.warn("ignored error:", err.message);
+          continue;
+        }
+
+        throw err;
       }
+
+      // Overwrite the actual lambda value.
+      lambdaSimulator.totalIDOLSupply = toIDOLAmount(totalIDOLSupply);
+      lambdaSimulator.totalLockedSBTValue = toBTValue(totalLockedSBTValue);
     }
 
     if (errorMessage !== "") {

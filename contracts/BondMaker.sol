@@ -22,6 +22,7 @@ contract BondMaker is
     uint8 internal constant DECIMALS_OF_BOND_AMOUNT = 8;
 
     address internal immutable LIEN_TOKEN_ADDRESS;
+    uint256 internal immutable MATURITY_SCALE;
 
     uint256 public nextBondGroupID = 1;
 
@@ -54,9 +55,12 @@ contract BondMaker is
     constructor(
         address oracleAddress,
         address lienTokenAddress,
-        address bondTokenNameAddress
+        address bondTokenNameAddress,
+        uint256 maturityScale
     ) public UseOracle(oracleAddress) UseBondTokenName(bondTokenNameAddress) {
         LIEN_TOKEN_ADDRESS = lienTokenAddress;
+        require(maturityScale != 0, "MATURITY_SCALE must be positive");
+        MATURITY_SCALE = maturityScale;
     }
 
     /**
@@ -77,6 +81,12 @@ contract BondMaker is
             bytes32
         )
     {
+        require(
+            maturity > _getBlockTimestampSec(),
+            "the maturity has already expired"
+        );
+        require(maturity % MATURITY_SCALE == 0, "maturity must be HH:00:00");
+
         bytes32 bondID = generateBondID(maturity, fnMap);
 
         // Check if the same form of bond is already registered.
@@ -260,6 +270,11 @@ contract BondMaker is
     {
         BondGroup storage bondGroup = _bondGroupList[bondGroupID];
         bytes32[] storage bondIDs = bondGroup.bondIDs;
+        require(
+            _getBlockTimestampSec() < bondGroup.maturity,
+            "the maturity has already expired"
+        );
+
         uint256 fee = msg.value.mul(2).div(1002);
 
         uint256 amount = msg.value.sub(fee).div(10**10); // ether's decimal is 18 and that of LBT is 8;
@@ -293,7 +308,7 @@ contract BondMaker is
         bytes32[] storage bondIDs = bondGroup.bondIDs;
         require(
             _getBlockTimestampSec() < bondGroup.maturity,
-            "already expired"
+            "the maturity has already expired"
         );
         bytes32 bondID;
         for (
@@ -302,11 +317,7 @@ contract BondMaker is
             bondFnMapIndex++
         ) {
             bondID = bondIDs[bondFnMapIndex];
-            BondToken bondTokenContract = _bonds[bondID].contractInstance;
-            require(
-                bondTokenContract.simpleBurn(msg.sender, amountE8),
-                "insufficient bond token balance"
-            );
+            _burnBond(bondID, msg.sender, amountE8);
         }
 
         _transferETH(
@@ -342,6 +353,10 @@ contract BondMaker is
             inputMaturity == outputMaturity,
             "cannot exchange bonds with different maturities"
         );
+        require(
+            _getBlockTimestampSec() < inputMaturity,
+            "the maturity has already expired"
+        );
         bool flag;
 
         uint256 exceptionCount;
@@ -356,12 +371,7 @@ contract BondMaker is
                 }
             }
             if (flag) {
-                BondToken bondTokenContract = _bonds[inputIDs[i]]
-                    .contractInstance;
-                require(
-                    bondTokenContract.simpleBurn(msg.sender, amount),
-                    "success of burning the amount of token required."
-                );
+                _burnBond(inputIDs[i], msg.sender, amount);
             }
         }
 
@@ -498,12 +508,34 @@ contract BondMaker is
 
     function _issueNewBond(
         bytes32 bondID,
-        address receiver,
+        address account,
         uint256 amount
     ) internal {
         BondToken bondTokenContract = _bonds[bondID].contractInstance;
-        bool success = bondTokenContract.mint(receiver, amount);
-        require(success, "failed to mint bond token");
+        require(
+            address(bondTokenContract) != address(0),
+            "the bond is not registered"
+        );
+        require(
+            bondTokenContract.mint(account, amount),
+            "failed to mint bond token"
+        );
+    }
+
+    function _burnBond(
+        bytes32 bondID,
+        address account,
+        uint256 amount
+    ) internal {
+        BondToken bondTokenContract = _bonds[bondID].contractInstance;
+        require(
+            address(bondTokenContract) != address(0),
+            "the bond is not registered"
+        );
+        require(
+            bondTokenContract.simpleBurn(account, amount),
+            "failed to burn bond token"
+        );
     }
 
     function _distributeETH2BondTokenContract(

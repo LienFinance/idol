@@ -1,5 +1,5 @@
 {
-  "errorMessage": "there is no auction amount, but the bids of auction is given",
+  "errorMessage": "Returned error: VM Exception while processing transaction: revert mint amount need to be greater than 500 idol for this bond -- Reason given: mint amount need to be greater than 500 idol for this bond.",
   "users": [1, 2],
   "bondGroups": [
     {

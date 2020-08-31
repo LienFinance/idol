@@ -4,7 +4,11 @@ import "./AuctionTimeControlInterface.sol";
 
 
 interface AuctionInterface is AuctionTimeControlInterface {
-    event LogStartAuction(bytes32 indexed auctionID, bytes32 bondID);
+    event LogStartAuction(
+        bytes32 indexed auctionID,
+        bytes32 bondID,
+        uint256 auctionedAmount
+    );
 
     event LogCancelBid(
         bytes32 indexed auctionID,

@@ -120,3 +120,76 @@ contract("AuctionBoard", (accounts) => {
     });
   });
 });
+
+contract("AuctionBoard", (accounts) => {
+  let contractAddresses: {
+    oracle: string;
+    bondMaker: string;
+    idol: string;
+    auction: string;
+    auctionBoard: string;
+    wrapper: string;
+    lienToken: string;
+  };
+
+  beforeEach(async () => {
+    contractAddresses = await init(
+      BondMaker,
+      StableCoin,
+      Auction,
+      AuctionBoard
+    );
+  });
+
+  describe("revealBids", () => {
+    it("manyPriceIndex", async () => {
+      const caseValue =
+        testCases["AuctionBoard"]["revealBids"]["manyPriceIndex"];
+      await testPattern3Factory(
+        accounts,
+        contractAddresses
+      )({
+        ...caseValue,
+        useWrapper: false,
+      });
+    });
+  });
+});
+
+contract("AuctionBoard", (accounts) => {
+  let contractAddresses: {
+    oracle: string;
+    bondMaker: string;
+    idol: string;
+    auction: string;
+    auctionBoard: string;
+    wrapper: string;
+    lienToken: string;
+  };
+
+  beforeEach(async () => {
+    contractAddresses = await init(
+      BondMaker,
+      StableCoin,
+      Auction,
+      AuctionBoard,
+      {
+        maxBoardIndex: 998,
+      }
+    );
+  });
+
+  describe("revealBids", () => {
+    it("manyBoardIndex", async () => {
+      const caseValue =
+        testCases["AuctionBoard"]["revealBids"]["manyBoardIndex"];
+      await testPattern3Factory(accounts, contractAddresses)(
+        {
+          ...caseValue,
+          useWrapper: false,
+        },
+        console
+      );
+    });
+  });
+});

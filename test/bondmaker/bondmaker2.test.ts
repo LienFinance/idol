@@ -1,6 +1,6 @@
 import {BigNumber} from "bignumber.js";
 import testCases from "../testCases";
-import {nullAddress, advanceTime} from "../util";
+import {nullAddress, advanceTime, getBlockTimestampSec} from "../util";
 import {callRegisterNewBond, callRegisterNewBondGroup} from "./callFunction";
 import {init} from "../init";
 
@@ -38,9 +38,11 @@ contract("BondMaker", () => {
           const bondMakerContract = await BondMaker.at(
             contractAddresses.bondMaker
           );
+          const now = await getBlockTimestampSec();
           let solidBondID: string;
           {
-            const {maturity, fnMap} = bondTypes[0];
+            const {periodSecBeforeMaturity, fnMap} = bondTypes[0];
+            const maturity = now + periodSecBeforeMaturity;
             const {
               bondID: newBondID,
               bondTokenAddress,
@@ -51,7 +53,8 @@ contract("BondMaker", () => {
           }
           let liquidBondID: string;
           {
-            const {maturity, fnMap} = bondTypes[1];
+            const {periodSecBeforeMaturity, fnMap} = bondTypes[1];
+            const maturity = now + periodSecBeforeMaturity;
             const {
               bondID: newBondID,
               bondTokenAddress,
@@ -65,7 +68,7 @@ contract("BondMaker", () => {
             } = await callRegisterNewBondGroup(
               bondMakerContract,
               [solidBondID, liquidBondID],
-              bondGroup.maturity
+              now + bondGroup.periodSecBeforeMaturity
             );
             // console.log('registerNewBondGroup gas: ', newGroupRes.receipt.gasUsed);
 
@@ -127,9 +130,11 @@ contract("BondMaker", (accounts) => {
       "registerNewBondGroup"
     ][0];
     const bondMakerContract = await BondMaker.at(contractAddresses.bondMaker);
+    const now = await getBlockTimestampSec();
     let solidBondID: string;
     {
-      const {maturity, fnMap} = bondTypes[0];
+      const {periodSecBeforeMaturity, fnMap} = bondTypes[0];
+      const maturity = now + periodSecBeforeMaturity;
       const {bondID: newBondID, bondTokenAddress} = await callRegisterNewBond(
         bondMakerContract,
         maturity,
@@ -140,7 +145,8 @@ contract("BondMaker", (accounts) => {
     }
     let liquidBondID: string;
     {
-      const {maturity, fnMap} = bondTypes[1];
+      const {periodSecBeforeMaturity, fnMap} = bondTypes[1];
+      const maturity = now + periodSecBeforeMaturity;
       const {bondID: newBondID, bondTokenAddress} = await callRegisterNewBond(
         bondMakerContract,
         maturity,
@@ -153,7 +159,7 @@ contract("BondMaker", (accounts) => {
     const {bondGroupID} = await callRegisterNewBondGroup(
       bondMakerContract,
       [solidBondID, liquidBondID],
-      bondGroup.maturity
+      now + bondGroup.periodSecBeforeMaturity
     );
     testBondGroupID = bondGroupID.toString();
   });
@@ -210,45 +216,46 @@ contract("BondMaker", (accounts) => {
       });
     });
   });
+});
 
-  describe("liquidateBond", () => {
-    const cases = testCases["BondMaker"]["liquidateBond"];
-    cases.forEach(
-      (
-        {success, bondGroupID, timestampLiquidate, returnedCollaterals, price},
-        caseIndex
-      ) => {
-        it(`case ${caseIndex}`, async () => {
-          const bondMakerContract = await BondMaker.at(
-            contractAddresses.bondMaker
-          );
+contract("BondMaker", (accounts) => {
+  let contractAddresses: {
+    bondMaker: string;
+  };
 
-          await web3.eth.sendTransaction({
-            from: accounts[0],
-            to: bondMakerContract.address,
-            value: web3.utils.toWei("0.1", "ether"),
-          });
-
-          await advanceTime(timestampLiquidate);
-          try {
-            await bondMakerContract.liquidateBond(bondGroupID, 0);
-          } catch (err) {
-            if (!success) {
-              return;
-            }
-            throw err;
-          }
-
-          if (!success) {
-            assert.fail(`did not fail to call liquidateBond`);
-          }
-
-          // const after = await underlyingTokenContract.balanceOf(accounts[0]);
-          // const acutal = new BigNumber(after.toString()).minus(before);
-          // assert.equal(acutal.toString(), price);
-        });
-      }
+  before(async () => {
+    contractAddresses = await init(
+      BondMaker,
+      StableCoin,
+      Auction,
+      AuctionBoard
     );
+  });
+
+  describe("issueNewBonds", () => {
+    it("revert issueNewBonds", async () => {
+      const bondMakerContract = await BondMaker.at(contractAddresses.bondMaker);
+      const bondGroupID = 1; // not registered
+      const mintingBondAmount = 1;
+      try {
+        await bondMakerContract.issueNewBonds(bondGroupID, {
+          value: new BigNumber(mintingBondAmount)
+            .shiftedBy(18)
+            .times(1002)
+            .div(1000)
+            .dividedToIntegerBy(1)
+            .toString(10),
+        });
+      } catch (err) {
+        assert.equal(
+          err.message,
+          "Returned error: VM Exception while processing transaction: revert the maturity has already expired -- Reason given: the maturity has already expired."
+        );
+        return;
+      }
+
+      assert.fail(`should fail to call issueNewBonds`);
+    });
   });
 });
 

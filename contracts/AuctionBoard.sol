@@ -43,6 +43,7 @@ contract AuctionBoard is
     uint256 internal immutable MAX_BOARD_INDEX;
     uint256 internal immutable MAX_BOARD_INDEX_AT_END_PRICE;
     uint256 internal immutable MAX_BIDCOUNT_PER_ADDRESS;
+    uint256 internal immutable MIN_TARGET_SBT_AMOUNT;
 
     /**
      * @notice The stats of the bids in the auction.
@@ -139,27 +140,17 @@ contract AuctionBoard is
     constructor(
         address bondMakerAddress,
         address IDOLAddress,
-        uint256 maxPriceIndex,
-        uint256 maxBoardIndex,
-        uint256 maxBoardIndexAtEndPrice,
-        uint256 maxBidCountPerAddress
+        uint16 maxPriceIndex,
+        uint64 maxBoardIndex,
+        uint64 maxBoardIndexAtEndPrice,
+        uint16 maxBidCountPerAddress,
+        uint64 minTargetSBTAmount
     ) public UseBondMaker(bondMakerAddress) UseStableCoin(IDOLAddress) {
-        require(
-            maxPriceIndex <= uint16(-1),
-            "MAX_PRICE_INDEX must not exceed 2^16 - 1"
-        );
-        require(
-            maxBoardIndex <= uint64(-1),
-            "MAX_BOARD_INDEX must not exceed 2^64 - 1"
-        );
-        require(
-            maxBoardIndexAtEndPrice <= uint64(-1),
-            "MAX_BOARD_INDEX_AT_END_PRICE must not exceed 2^64 - 1"
-        );
         MAX_PRICE_INDEX = maxPriceIndex;
         MAX_BOARD_INDEX = maxBoardIndex;
         MAX_BOARD_INDEX_AT_END_PRICE = maxBoardIndexAtEndPrice;
         MAX_BIDCOUNT_PER_ADDRESS = maxBidCountPerAddress;
+        MIN_TARGET_SBT_AMOUNT = minTargetSBTAmount;
     }
 
     /**
@@ -175,41 +166,46 @@ contract AuctionBoard is
         bytes32 secret,
         uint64 targetSBTAmount,
         bytes memory memo
-    ) public virtual override {
+    ) public override isNotEmptyAuctionInstance returns (uint256) {
         require(
             _auctionContract.isInPeriod(auctionID, ACCEPTING_BIDS_PERIOD_FLAG),
             "it is not the time to accept bids"
         );
 
-        (, , uint256 solidStrikePriceE4, ) = _getBondFromAuctionID(auctionID);
-        uint256 strikePriceIDOLAmount = _IDOLContract.calcSBT2IDOL(
-            solidStrikePriceE4.mul(targetSBTAmount)
-        );
+        (, , , , , , , , uint64 highestBidPriceDeadLine, ) = _auctionContract
+            .getAuctionStatus(auctionID);
+
+        uint256 depositedIDOLAmount = highestBidPriceDeadLine
+            .mul(targetSBTAmount)
+            .divRoundUp(10**8);
+
         require(
-            strikePriceIDOLAmount >= 10**10,
-            "at least 100 iDOL is required for the bid Amount"
+            targetSBTAmount >= MIN_TARGET_SBT_AMOUNT,
+            "at least 1 SBT is required for the total target bid Amount"
         );
 
         _bidWithMemo(
             auctionID,
             secret,
             targetSBTAmount,
-            strikePriceIDOLAmount,
+            depositedIDOLAmount,
             memo
         );
+
+        return depositedIDOLAmount;
     }
 
     function _bidWithMemo(
         bytes32 auctionID,
         bytes32 secret,
         uint64 targetSBTAmount,
-        uint256 strikePriceIDOLAmount,
+        uint256 depositedIDOLAmount,
         bytes memory memo
     ) internal {
         _transferIDOLFrom(
             msg.sender,
             address(_auctionContract),
-            strikePriceIDOLAmount
+            depositedIDOLAmount
         );
 
         // write secret
@@ -218,7 +214,7 @@ contract AuctionBoard is
             secret,
             msg.sender,
             targetSBTAmount,
-            strikePriceIDOLAmount.toUint64()
+            depositedIDOLAmount.toUint64()
         );
         RevealingInfo memory revealInfo = auctionRevealInfo[auctionID];
         revealInfo.totalSBTAmountBid = revealInfo
@@ -227,7 +223,7 @@ contract AuctionBoard is
             .toUint64();
         revealInfo.totalIDOLSecret = revealInfo
             .totalIDOLSecret
-            .add(strikePriceIDOLAmount)
+            .add(depositedIDOLAmount)
             .toUint64();
         auctionRevealInfo[auctionID] = revealInfo;
 
@@ -241,21 +237,17 @@ contract AuctionBoard is
     {
         AuctionTimeControlInterface.TimeControlFlag timeFlag = _auctionContract
             .getTimeControlFlag(auctionID);
-        uint64 strikePrice;
+        uint64 punishBidPrice;
         if (timeFlag == ACCEPTING_BIDS_PERIOD_FLAG) {
-            (, , uint256 solidStrikePriceE4, ) = _getBondFromAuctionID(
-                auctionID
-            );
-            strikePrice = _IDOLContract
-                .calcSBT2IDOL(solidStrikePriceE4.mul(10**8))
-                .toUint64();
+            (, , , , , , , , punishBidPrice, ) = _auctionContract
+                .getAuctionStatus(auctionID);
         } else {
             require(
                 timeFlag == REVEALING_BIDS_PERIOD_FLAG,
                 "it is not the time to reveal the value of bids"
             );
         }
-        return strikePrice;
+        return punishBidPrice;
     }
 
     function _registerNewBidPrice(bytes32 auctionID, uint256 price)
@@ -390,6 +382,11 @@ contract AuctionBoard is
 
             uint64 SBTAmount = bids[i + 1];
 
+            require(
+                SBTAmount >= MIN_TARGET_SBT_AMOUNT,
+                "at least 1 SBT is required for the target bid Amount"
+            );
+
             emit LogInsertBoard(
                 auctionID,
                 bidder,
@@ -422,6 +419,7 @@ contract AuctionBoard is
     function sortBidPrice(bytes32 auctionID, uint64[] memory sortedPrice)
         public
         override
+        isNotEmptyAuctionInstance
     {
         uint16 bidsCount = sortedPrice.length.toUint16();
 
@@ -443,6 +441,7 @@ contract AuctionBoard is
                 "no order exists at the price"
             );
             _auctionSortedPrice[auctionID] = sortedPrice;
+            delete _auctionUnsortedPrice[auctionID];
         } else if (bidsCount != 0) {
             // Large/small check for each price (large-> small)
             for (uint16 i = 0; i < bidsCount - 1; i++) {
@@ -463,6 +462,7 @@ contract AuctionBoard is
 
             // Completion of sorted bid price data
             _auctionSortedPrice[auctionID] = sortedPrice;
+            delete _auctionUnsortedPrice[auctionID];
         }
 
         // Initialize bidIndex to 0. Used in the following endAuction process.
@@ -486,7 +486,14 @@ contract AuctionBoard is
             disposalInfo.isPriceSorted,
             "Prices need to be sorted before the execution of _disposeOfUnrevealedBid"
         );
-        (, , uint256 solidStrikePriceE4, ) = _getBondFromAuctionID(auctionID); // strikePrice in IDOL unit
+        (
+            address bondTokenAddress,
+            ,
+            uint256 solidStrikePriceE4,
+
+        ) = _getBondFromAuctionID(auctionID); // strikePrice in IDOL unit
+        require(bondTokenAddress != address(0), "the bond is not registered");
+
         // calcSBT2IDOL executes the multiplication of lambda to the strike price
         uint256 solidStrikePriceIDOL = _IDOLContract.calcSBT2IDOL(
             solidStrikePriceE4.mul(10**8)
@@ -527,7 +534,11 @@ contract AuctionBoard is
         auctionDisposalInfo[auctionID] = disposalInfo;
     }
 
-    function makeEndInfo(bytes32 auctionID) public override {
+    function makeEndInfo(bytes32 auctionID)
+        public
+        override
+        isNotEmptyAuctionInstance
+    {
         _disposeOfUnrevealedBid(auctionID);
 
         AuctionTimeControlInterface.TimeControlFlag timeFlag = _auctionContract
@@ -671,7 +682,7 @@ contract AuctionBoard is
         bytes32 auctionID,
         uint64 winnerAmount,
         uint64 myLowestPrice
-    ) public override view returns (uint64) {
+    ) public override view isNotEmptyAuctionInstance returns (uint64) {
         AuctionWinnerDetInfo memory endInfo = _auctionEndInfo[auctionID];
 
         uint256 toPayPlusSkip = 0;
@@ -743,6 +754,7 @@ contract AuctionBoard is
 
     function deleteParticipantInfo(bytes32 auctionID, address participant)
         public
+        isNotEmptyAuctionInstance
     {
         require(
             msg.sender == address(_auctionContract),
@@ -752,7 +764,7 @@ contract AuctionBoard is
     }
 
     /**
-     * @dev This function returns the price rounded off to the top 4 digits.
+     * @dev This function returns the price rounded off to the top 3 digits.
      */
     function discretizeBidPrice(uint64 priceE8)
         public
@@ -761,21 +773,21 @@ contract AuctionBoard is
         returns (uint64)
     {
         if (priceE8 < 5 * 10**8) {
-            return priceE8.div(10**4).mul(10**4).toUint64();
-        } else if (priceE8 < 5 * 10**9) {
             return priceE8.div(10**5).mul(10**5).toUint64();
-        } else if (priceE8 < 5 * 10**10) {
+        } else if (priceE8 < 5 * 10**9) {
             return priceE8.div(10**6).mul(10**6).toUint64();
-        } else if (priceE8 < 5 * 10**11) {
+        } else if (priceE8 < 5 * 10**10) {
             return priceE8.div(10**7).mul(10**7).toUint64();
-        } else if (priceE8 < 5 * 10**12) {
+        } else if (priceE8 < 5 * 10**11) {
             return priceE8.div(10**8).mul(10**8).toUint64();
-        } else if (priceE8 < 5 * 10**13) {
+        } else if (priceE8 < 5 * 10**12) {
             return priceE8.div(10**9).mul(10**9).toUint64();
-        } else if (priceE8 < 5 * 10**14) {
+        } else if (priceE8 < 5 * 10**13) {
             return priceE8.div(10**10).mul(10**10).toUint64();
-        } else {
+        } else if (priceE8 < 5 * 10**14) {
             return priceE8.div(10**11).mul(10**11).toUint64();
+        } else {
+            return priceE8.div(10**12).mul(10**12).toUint64();
         }
     }
 
@@ -784,7 +796,7 @@ contract AuctionBoard is
         uint64 settledAmountE8,
         uint64 paidIDOLE8,
         uint64 rewardedSBTE8
-    ) external {
+    ) external isNotEmptyAuctionInstance {
         require(
             msg.sender == address(_auctionContract),
             "only auction contract is allowed to invoke updateAuctionInfo"
@@ -839,7 +851,7 @@ contract AuctionBoard is
         returns (
             address erc20Address,
             uint256 maturity,
-            uint64 stableStrikePrice,
+            uint64 solidStrikePrice,
             bytes32 fnMapID
         )
     {
@@ -925,7 +937,7 @@ contract AuctionBoard is
         bytes32 auctionID,
         bytes32 secret,
         uint64 subtractAmount
-    ) external {
+    ) external isNotEmptyAuctionInstance {
         require(
             msg.sender == address(_auctionContract),
             "only auction contract is allowed to invoke removeSecret"

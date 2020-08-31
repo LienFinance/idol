@@ -2,7 +2,7 @@ const fs = require('fs');
 
 const StableCoin = artifacts.require('StableCoin');
 
-const { auctionSpan, emergencyAuctionSpan } = require('../test/constants.js');
+const { auctionSpan, emergencyAuctionSpan, mintIDOLAmountBorder } = require('../test/constants.js');
 
 module.exports = async (deployer) => {
     const inputFile = process.env.DUMP || 'dump.json';
@@ -13,7 +13,8 @@ module.exports = async (deployer) => {
         data.oracle,
         data.bondMaker,
         auctionSpan,
-        emergencyAuctionSpan
+        emergencyAuctionSpan,
+        mintIDOLAmountBorder
     );
     const idolTokenContract = await StableCoin.deployed();
 

@@ -1,0 +1,58 @@
+{
+  "errorMessage": "",
+  "users": [0, 1, 2],
+  "bondGroups": [
+    {
+      "solidStrikePrice": 1000,
+      "assets": {
+        "1": {"mintingBondAmount": 3, "lockingSBTAmount": 3},
+        "2": {"mintingBondAmount": 2, "lockingSBTAmount": 2}
+      },
+      "etherStatus": {
+        "beforeRegisteringBonds": {
+          "untilMaturity": 518400,
+          "rateETH2USD": 2000,
+          "volatility": 0
+        }
+      },
+      "auctions": []
+    },
+    {
+      "solidStrikePrice": 10,
+      "assets": {
+        "0": {"mintingBondAmount": 4.5, "lockingSBTAmount": 4.5}
+      },
+      "etherStatus": {
+        "beforeRegisteringBonds": {
+          "untilMaturity": 518400,
+          "rateETH2USD": 20,
+          "volatility": 0
+        }
+      },
+      "auctions": [
+        {
+          "bids": [
+            {"accountIndex": 1, "price": 105, "amount": 2.7, "random": 1},
+            {"accountIndex": 2, "price": 104, "amount": 1.8, "random": 2}
+          ],
+          "actions": {
+            "1": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": 100, "boardIndex": 0}],
+                "myLoseBids": []
+              }
+            },
+            "2": {
+              "result": {
+                "myLowestPrice": "NO_LOWEST_LOSE_BID_PRICE",
+                "myWinBids": [{"price": 100, "boardIndex": 1}],
+                "myLoseBids": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import * as fs from "fs";
 import {Pattern3TestCase} from "./utils";
 
 const dirPath = __dirname + "/cases/";
+fs.mkdirSync(dirPath, {recursive: true});
 const files = fs.readdirSync(dirPath);
 export const pat3cases = (() => {
   const testCases: {[caseIndex: number]: Pattern3TestCase} = {};
